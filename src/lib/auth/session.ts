@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, SESSION_TTL_SECONDS } from "@/lib/auth/constants";
 import { createSessionToken, verifySessionToken } from "@/lib/auth/jwt";
+import { db } from "@/lib/db";
 import type { SessionPayload, SessionRole } from "@/lib/auth/types";
 
 export { createSessionToken, verifySessionToken };
@@ -31,6 +32,26 @@ export function clearSessionCookie(response: NextResponse): void {
   });
 }
 
+async function validateSession(session: SessionPayload | null): Promise<SessionPayload | null> {
+  if (!session) {
+    return null;
+  }
+
+  const user = await db.user.findFirst({
+    where: {
+      id: session.userId,
+      familyId: session.familyId,
+      role: session.role,
+      isActive: true
+    },
+    select: {
+      id: true
+    }
+  });
+
+  return user ? session : null;
+}
+
 export async function getServerSession(): Promise<SessionPayload | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
@@ -39,7 +60,8 @@ export async function getServerSession(): Promise<SessionPayload | null> {
     return null;
   }
 
-  return verifySessionToken(token);
+  const session = await verifySessionToken(token);
+  return validateSession(session);
 }
 
 export async function requireServerSession(roles?: SessionRole[]): Promise<SessionPayload> {
@@ -63,7 +85,8 @@ export async function getApiSession(request: NextRequest): Promise<SessionPayloa
     return null;
   }
 
-  return verifySessionToken(token);
+  const session = await verifySessionToken(token);
+  return validateSession(session);
 }
 
 export async function requireApiSession(
