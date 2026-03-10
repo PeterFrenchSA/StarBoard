@@ -1,39 +1,69 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
-APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BRANCH="${BRANCH:-main}"
+set -Eeuo pipefail
 
-cd "$APP_DIR"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+. "${SCRIPT_DIR}/lib.sh"
 
-if [ ! -f .env ]; then
-  cp .env.example .env
-  echo "Created .env from template. Update secrets and run deploy again."
-  exit 1
-fi
+RUN_SEED="${RUN_SEED:-false}"
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
+SKIP_GIT_PULL="${SKIP_GIT_PULL:-false}"
 
-git fetch origin
-if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
-  git checkout "$BRANCH"
-else
-  git checkout -b "$BRANCH" "origin/$BRANCH"
-fi
+main() {
+  require_cmd git
+  require_cmd docker
 
-git pull --ff-only origin "$BRANCH"
+  cd "$APP_DIR"
+  load_env
 
-docker compose -f docker-compose.prod.yml --env-file .env build app
-docker compose -f docker-compose.prod.yml --env-file .env up -d db
+  local branch="${DEPLOY_BRANCH:-${BRANCH:-main}}"
 
-for i in $(seq 1 40); do
-  if docker compose -f docker-compose.prod.yml --env-file .env exec -T db pg_isready -U "${POSTGRES_USER:-starboard}" -d "${POSTGRES_DB:-starboard}" >/dev/null 2>&1; then
-    break
+  log "Starting deployment"
+  log "App dir: ${APP_DIR}"
+  log "Compose file: $(compose_path)"
+  log "Env file: $(env_path)"
+
+  if [ "$SKIP_GIT_PULL" != "true" ]; then
+    log "Syncing code from ${GIT_REMOTE}/${branch}"
+    checkout_branch "$branch"
+  else
+    log "Skipping git pull (SKIP_GIT_PULL=true)"
   fi
-  sleep 2
 
-done
+  local commit_sha
+  commit_sha="$(git rev-parse --short HEAD)"
+  log "Deploying commit ${commit_sha}"
 
-docker compose -f docker-compose.prod.yml --env-file .env run --rm app npm run prisma:deploy
-docker compose -f docker-compose.prod.yml --env-file .env up -d --no-deps app
-docker image prune -f >/dev/null
+  log "Building application image"
+  compose build app
 
-echo "Deployment complete."
+  log "Starting database container"
+  compose up -d db
+  wait_for_db
+
+  log "Running Prisma migrations"
+  compose run --rm app npm run prisma:deploy
+
+  if [ "$RUN_SEED" = "true" ]; then
+    log "RUN_SEED=true -> running seed"
+    compose run --rm app npm run prisma:seed
+  else
+    log "Skipping seed (RUN_SEED=false)"
+  fi
+
+  log "Starting/updating app container"
+  compose up -d --no-deps app
+
+  wait_for_app
+
+  log "Pruning dangling images"
+  docker image prune -f >/dev/null || warn "Image prune failed (non-fatal)"
+
+  record_deploy "$commit_sha" "$branch"
+
+  log "Deployment succeeded"
+  log "Active commit: ${commit_sha}"
+}
+
+main "$@"

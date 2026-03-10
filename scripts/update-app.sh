@@ -1,41 +1,31 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
-APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BRANCH="${BRANCH:-main}"
+set -Eeuo pipefail
 
-cd "$APP_DIR"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+. "${SCRIPT_DIR}/lib.sh"
 
-if [ ! -f .env ]; then
-  echo ".env not found. Copy .env.example to .env and configure it first."
+main() {
+  require_cmd git
+
+  cd "$APP_DIR"
+  local previous_commit
+  previous_commit="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+
+  log "Starting application update"
+  log "Current commit: ${previous_commit}"
+
+  if RUN_SEED="${RUN_SEED:-false}" SKIP_GIT_PULL=false DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}" "${SCRIPT_DIR}/deploy.sh"; then
+    local current_commit
+    current_commit="$(git rev-parse --short HEAD)"
+    log "Update successful: ${previous_commit} -> ${current_commit}"
+    return 0
+  fi
+
+  warn "Update failed. Current checkout may be unchanged or partially updated."
+  warn "Run rollback: ENV_FILE=${ENV_FILE:-.env.production} ./rollback.sh"
   exit 1
-fi
-
-PREVIOUS_COMMIT="$(git rev-parse HEAD)"
-
-rollback() {
-  echo "Update failed. Rolling back to ${PREVIOUS_COMMIT}."
-  git checkout "$PREVIOUS_COMMIT"
-  docker compose -f docker-compose.prod.yml --env-file .env build app
-  docker compose -f docker-compose.prod.yml --env-file .env up -d --no-deps app
 }
 
-trap rollback ERR
-
-git fetch origin
-if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
-  git checkout "$BRANCH"
-else
-  git checkout -b "$BRANCH" "origin/$BRANCH"
-fi
-
-git pull --ff-only origin "$BRANCH"
-
-docker compose -f docker-compose.prod.yml --env-file .env build app
-docker compose -f docker-compose.prod.yml --env-file .env run --rm app npm run prisma:deploy
-docker compose -f docker-compose.prod.yml --env-file .env up -d --no-deps app
-docker image prune -f >/dev/null
-
-trap - ERR
-
-echo "Update complete. Previous commit: ${PREVIOUS_COMMIT}"
+main "$@"

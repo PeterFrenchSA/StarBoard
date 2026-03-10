@@ -76,6 +76,17 @@ scripts/
   bootstrap-server.sh
   deploy.sh
   update-app.sh
+  rollback.sh
+  backup-db.sh
+  restore-db.sh
+  lib.sh
+ops/
+  nginx/
+    starboard.conf.example
+bootstrap-server.sh
+deploy.sh
+update-app.sh
+rollback.sh
 ```
 
 ## Quick Start (Docker, macOS/Linux)
@@ -273,51 +284,138 @@ The voice endpoints are designed for private household automation and can be wir
 
 ## Ubuntu VPS Deployment
 
-### One-time bootstrap
+Use these files:
+
+- `bootstrap-server.sh` (wrapper)
+- `deploy.sh` (wrapper)
+- `update-app.sh` (wrapper)
+- `rollback.sh` (wrapper)
+- `scripts/bootstrap-server.sh`
+- `scripts/deploy.sh`
+- `scripts/update-app.sh`
+- `scripts/rollback.sh`
+- `docker-compose.prod.yml`
+- `.env.production.example`
+
+### 1. Prepare Ubuntu VPS
+
+DNS / reverse proxy note:
+- Point your domain to the VPS.
+- Use a reverse proxy (Nginx/Caddy/Traefik) with TLS termination.
+- Example Nginx config: `ops/nginx/starboard.conf.example`
+
+### 2. Run bootstrap once (on VPS)
 
 ```bash
-./scripts/bootstrap-server.sh
+ssh <user>@<server>
+sudo -v
+git clone https://github.com/PeterFrenchSA/StarBoard.git /opt/starboard || true
+cd /opt/starboard
+./bootstrap-server.sh
 ```
 
-This script installs Docker, Docker Compose plugin, and Git (if missing), clones/updates the repo, initializes `.env` from template, and runs deployment.
+What bootstrap does:
+- verifies Ubuntu
+- installs Git, Docker, Docker Compose plugin if missing
+- prepares `/opt/starboard`
+- clones/pulls repo
+- creates `.env.production` from template if missing
 
-### Deploy current branch
+### 3. Configure production env
 
 ```bash
-./scripts/deploy.sh
+cd /opt/starboard
+cp .env.production.example .env.production   # if not created already
+nano .env.production
 ```
 
-Deploy script behavior:
+Required secure values:
+- `APP_URL`
+- `AUTH_SECRET`
+- `VOICE_TOKEN_SALT`
+- `POSTGRES_PASSWORD`
+- `DATABASE_URL`
+- `DIRECT_URL`
 
-- pulls latest Git code
+### 4. First deployment
+
+```bash
+cd /opt/starboard
+ENV_FILE=.env.production DEPLOY_BRANCH=main ./deploy.sh
+```
+
+`deploy.sh`:
+- pulls latest Git code (branch override supported)
 - builds app image
-- starts PostgreSQL
-- waits for DB readiness
+- starts/updates containers
 - runs Prisma migrations
-- restarts app container
-- prunes old unused images
+- optionally seeds only when `RUN_SEED=true`
+- runs app health check
+- logs deployed commit SHA (`deployments.log`)
+- prunes unused Docker images
 
-### Update with rollback support
+### 5. App updates over time
 
 ```bash
-./scripts/update-app.sh
+cd /opt/starboard
+ENV_FILE=.env.production DEPLOY_BRANCH=main ./update-app.sh
 ```
 
-If update fails after pull/build/migrate, script rolls back to previous Git commit and restarts previous container image.
+`update-app.sh` is a safe update wrapper around deploy flow with clear success/failure output.
+It replaces only the app container (`up -d --no-deps app`) for near-zero downtime within Docker Compose constraints.
 
-## Production Compose Notes
+### 6. Rollback
 
-`docker-compose.prod.yml` runs:
+Rollback to previous commit:
 
-- `db` (Postgres 16)
-- `app` (Next.js container)
+```bash
+cd /opt/starboard
+ENV_FILE=.env.production ./rollback.sh
+```
 
-Set secure values in `.env` before deploy:
+Rollback to a specific commit:
 
-- strong `AUTH_SECRET`
-- strong `VOICE_TOKEN_SALT`
-- non-default `POSTGRES_PASSWORD`
-- production `APP_URL`
+```bash
+cd /opt/starboard
+ENV_FILE=.env.production ROLLBACK_COMMIT=<commit-sha> ./rollback.sh
+```
+
+### 7. Logs and runtime inspection
+
+```bash
+cd /opt/starboard
+docker compose -f docker-compose.prod.yml --env-file .env.production ps
+docker compose -f docker-compose.prod.yml --env-file .env.production logs -f --tail=200 app db
+```
+
+### 8. Back up PostgreSQL volume data
+
+Create compressed SQL dump:
+
+```bash
+cd /opt/starboard
+ENV_FILE=.env.production ./scripts/backup-db.sh
+```
+
+Default backup location:
+- `./backups` (override with `BACKUP_DIR` in `.env.production`)
+
+### 9. Restore PostgreSQL from dump
+
+```bash
+cd /opt/starboard
+ENV_FILE=.env.production ./scripts/restore-db.sh ./backups/starboard-YYYYMMDD-HHMMSSZ.sql.gz
+```
+
+### 10. Optional Makefile shortcuts
+
+```bash
+make deploy ENV_FILE=.env.production DEPLOY_BRANCH=main
+make update ENV_FILE=.env.production DEPLOY_BRANCH=main
+make rollback ENV_FILE=.env.production
+make logs ENV_FILE=.env.production
+make backup ENV_FILE=.env.production
+```
 
 ## Security Notes
 
