@@ -18,9 +18,11 @@ services:
       retries: 20
 
   app:
-    image: node:22-bookworm-slim
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: base
     container_name: starboard-app
-    working_dir: /app
     depends_on:
       db:
         condition: service_healthy
