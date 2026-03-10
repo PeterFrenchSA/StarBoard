@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { ProgressRing } from "@/components/ui/progress-ring";
 
 type ChildOverview = {
   child: {
@@ -71,6 +72,13 @@ interface ChildDashboardProps {
   childName: string;
 }
 
+function formatStatus(status: string): string {
+  return status
+    .split("_")
+    .map((part) => part[0] + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
 export function ChildDashboard({ childName }: ChildDashboardProps) {
   const [data, setData] = useState<ChildOverview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -108,6 +116,34 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
       setSaving(false);
     }
   }
+
+  const completedTasks = useMemo(
+    () =>
+      (data?.completions ?? []).filter(
+        (completion) => completion.status !== "REJECTED" && completion.status !== "PENDING_APPROVAL"
+      ),
+    [data]
+  );
+
+  const nextReward = useMemo(
+    () =>
+      (data?.rewards ?? [])
+        .filter((reward) => reward.cost > (data?.points ?? 0))
+        .sort((a, b) => a.cost - b.cost)[0] ?? null,
+    [data]
+  );
+
+  const nextRewardProgress = useMemo(() => {
+    if (!data) {
+      return 0;
+    }
+
+    if (!nextReward) {
+      return 100;
+    }
+
+    return Math.max(0, Math.min(100, Math.round((data.points / nextReward.cost) * 100)));
+  }, [data, nextReward]);
 
   if (loading) {
     return (
@@ -147,6 +183,46 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
         </div>
       ) : null}
 
+      <section className="mb-6 grid gap-4 lg:grid-cols-[2fr_1fr]">
+        <Card className="p-5">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-board-sky to-board-mint text-3xl shadow-sm">
+              {data.child.childProfile?.avatarEmoji ?? "⭐"}
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-slate-500">Child Profile</p>
+              <h2 className="font-[var(--font-display)] text-2xl font-black">{data.child.displayName}</h2>
+              <p className="text-sm text-slate-600">Stay consistent to build your streak and unlock rewards.</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-lg font-black text-board-mint">{data.tasks.length}</p>
+              <p>Assigned Tasks</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-lg font-black text-board-sun">{completedTasks.length}</p>
+              <p>Completed</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-lg font-black text-board-coral">
+                {data.rewards.filter((reward) => reward.affordable).length}
+              </p>
+              <p>Rewards Ready</p>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="flex items-center justify-center p-5">
+          <ProgressRing
+            value={nextRewardProgress}
+            label={nextReward ? "Next Reward" : "All Rewards Reachable"}
+            subtitle={nextReward ? `${nextReward.iconEmoji} ${nextReward.title}` : "Great work"}
+          />
+        </Card>
+      </section>
+
       <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Card className="p-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">Stars / Points</p>
@@ -181,7 +257,7 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
 
       <section className="mb-6 grid gap-4 lg:grid-cols-2">
         <Card>
-          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">My Tasks</h2>
+          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Assigned Tasks</h2>
           <div className="space-y-3">
             {data.tasks.length === 0 ? (
               <p className="text-sm text-slate-500">No tasks assigned yet.</p>
@@ -226,7 +302,7 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
         </Card>
 
         <Card>
-          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Rewards</h2>
+          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Rewards Available</h2>
           <div className="space-y-3">
             {data.rewards.length === 0 ? (
               <p className="text-sm text-slate-500">No rewards yet. Ask your parent to add one.</p>
@@ -266,23 +342,27 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
         </Card>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
+      <section className="grid gap-4 lg:grid-cols-3">
         <Card>
-          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Recent Task Activity</h2>
+          <h2 className="mb-3 font-[var(--font-display)] text-xl font-black">Completed Tasks</h2>
           <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
-            {data.completions.map((completion) => (
-              <div key={completion.id} className="rounded-xl border border-slate-200 p-3">
-                <p className="text-sm font-medium">{completion.task.title}</p>
-                <p className="text-xs text-slate-500">
-                  {completion.status.replace("_", " ")} • {new Date(completion.completedAt).toLocaleString()}
-                </p>
-              </div>
-            ))}
+            {completedTasks.length === 0 ? (
+              <p className="text-sm text-slate-500">No completed tasks yet.</p>
+            ) : (
+              completedTasks.map((completion) => (
+                <div key={completion.id} className="rounded-xl border border-slate-200 p-3">
+                  <p className="text-sm font-medium">{completion.task.title}</p>
+                  <p className="text-xs text-slate-500">
+                    {formatStatus(completion.status)} • {new Date(completion.completedAt).toLocaleString()}
+                  </p>
+                </div>
+              ))
+            )}
           </div>
         </Card>
 
         <Card>
-          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Points History</h2>
+          <h2 className="mb-3 font-[var(--font-display)] text-xl font-black">Points History</h2>
           <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
             {data.pointsHistory.map((entry) => (
               <div key={entry.id} className="rounded-xl border border-slate-200 p-3">
@@ -295,6 +375,18 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
                 <p className="text-xs text-slate-500">
                   {new Date(entry.createdAt).toLocaleString()} • {entry.actor?.displayName ?? "System"}
                 </p>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card>
+          <h2 className="mb-3 font-[var(--font-display)] text-xl font-black">Activity Feed</h2>
+          <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+            {data.activity.map((event) => (
+              <div key={event.id} className="rounded-xl border border-slate-200 p-3">
+                <p className="text-sm font-medium">{event.message}</p>
+                <p className="text-xs text-slate-500">{new Date(event.createdAt).toLocaleString()}</p>
               </div>
             ))}
           </div>
