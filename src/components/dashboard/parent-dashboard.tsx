@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AvatarPicker } from "@/components/dashboard/avatar-picker";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Toast } from "@/components/ui/toast";
 
 type TaskKind = "ONE_OFF" | "RECURRING";
 type RecurrenceKind = "NONE" | "DAILY" | "WEEKLY" | "WEEKDAYS";
@@ -109,7 +111,11 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
   const [data, setData] = useState<ParentOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [selectedAvatar, setSelectedAvatar] = useState("⭐");
+  const [pointDeltas, setPointDeltas] = useState<Record<string, number>>({});
+  const previousPointsRef = useRef<Record<string, number>>({});
 
   const [taskType, setTaskType] = useState<TaskKind>("RECURRING");
   const [recurrenceType, setRecurrenceType] = useState<RecurrenceKind>("DAILY");
@@ -122,23 +128,57 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
 
   const [selectedRewardId, setSelectedRewardId] = useState<string>("");
 
-  const loadOverview = useCallback(async () => {
-    setLoading(true);
+  const loadOverview = useCallback(async (showLoader = false) => {
+    if (showLoader) {
+      setLoading(true);
+    }
     setError(null);
 
     try {
       const overview = await fetchJson<ParentOverview>("/api/parent/overview");
+      const deltas = overview.children.reduce<Record<string, number>>((acc, child) => {
+        const previous = previousPointsRef.current[child.id];
+        if (typeof previous === "number" && previous !== child.points) {
+          acc[child.id] = child.points - previous;
+        }
+        return acc;
+      }, {});
+      previousPointsRef.current = overview.children.reduce<Record<string, number>>((acc, child) => {
+        acc[child.id] = child.points;
+        return acc;
+      }, {});
+      setPointDeltas(deltas);
       setData(overview);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load dashboard");
     } finally {
-      setLoading(false);
+      if (showLoader) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    void loadOverview();
+    void loadOverview(true);
   }, [loadOverview]);
+
+  useEffect(() => {
+    if (!success) {
+      return;
+    }
+
+    const timer = setTimeout(() => setSuccess(null), 2800);
+    return () => clearTimeout(timer);
+  }, [success]);
+
+  useEffect(() => {
+    if (Object.keys(pointDeltas).length === 0) {
+      return;
+    }
+
+    const timer = setTimeout(() => setPointDeltas({}), 1800);
+    return () => clearTimeout(timer);
+  }, [pointDeltas]);
 
   useEffect(() => {
     if (!data) {
@@ -208,13 +248,16 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
     };
   }, [data]);
 
-  async function handleAction(action: () => Promise<void>) {
+  async function handleAction(action: () => Promise<void>, successMessage?: string) {
     setSaving(true);
     setError(null);
 
     try {
       await action();
-      await loadOverview();
+      await loadOverview(false);
+      if (successMessage) {
+        setSuccess(successMessage);
+      }
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Action failed");
     } finally {
@@ -254,10 +297,12 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
         subtitle={`Welcome back, ${parentName}. Manage tasks, points, rewards, and approvals.`}
       />
 
+      <div className="pointer-events-none fixed right-4 top-4 z-50 flex w-full max-w-sm justify-end">
+        {success ? <Toast message={success} /> : null}
+      </div>
+
       {error ? (
-        <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-          {error}
-        </div>
+        <Toast message={error} variant="error" className="mb-4" />
       ) : null}
 
       <section className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -326,31 +371,48 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
       </section>
 
       <section className="mb-6 grid gap-4 md:grid-cols-3">
-        {data.children.map((child) => (
-          <Card key={child.id} className="p-4">
-            <div className="mb-2 flex items-center gap-3">
-              <span className="text-2xl">{child.childProfile?.avatarEmoji ?? "⭐"}</span>
-              <div>
-                <p className="font-bold">{child.displayName}</p>
-                <p className="text-xs text-slate-500">{child.email}</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="rounded-xl bg-slate-50 p-2">
-                <p className="font-black text-base text-board-mint">{child.points}</p>
-                <p>Points</p>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-2">
-                <p className="font-black text-base text-board-sun">{child.childProfile?.currentStreak ?? 0}</p>
-                <p>Streak</p>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-2">
-                <p className="font-black text-base text-board-coral">{child.pendingTasks + child.pendingRewards}</p>
-                <p>Pending</p>
-              </div>
-            </div>
+        {data.children.length === 0 ? (
+          <Card className="md:col-span-3">
+            <p className="text-sm text-slate-500">No children yet. Add the first child profile to start assigning tasks.</p>
           </Card>
-        ))}
+        ) : (
+          data.children.map((child) => (
+            <Card key={child.id} className="relative p-4">
+              <div className="mb-2 flex items-center gap-3">
+                <span className="text-2xl">{child.childProfile?.avatarEmoji ?? "⭐"}</span>
+                <div>
+                  <p className="font-bold">{child.displayName}</p>
+                  <p className="text-xs text-slate-500">{child.email}</p>
+                </div>
+              </div>
+
+              {pointDeltas[child.id] ? (
+                <span
+                  className={`absolute right-4 top-4 rounded-full px-2 py-1 text-xs font-black text-white animate-points-flash ${
+                    pointDeltas[child.id] > 0 ? "bg-board-mint" : "bg-board-coral"
+                  }`}
+                >
+                  {pointDeltas[child.id] > 0 ? `+${pointDeltas[child.id]}` : pointDeltas[child.id]} pts
+                </span>
+              ) : null}
+
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="rounded-xl bg-slate-50 p-2">
+                  <p className="font-black text-base text-board-mint">{child.points}</p>
+                  <p>Points</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-2">
+                  <p className="font-black text-base text-board-sun">{child.childProfile?.currentStreak ?? 0}</p>
+                  <p>Streak</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-2">
+                  <p className="font-black text-base text-board-coral">{child.pendingTasks + child.pendingRewards}</p>
+                  <p>Pending</p>
+                </div>
+              </div>
+            </Card>
+          ))
+        )}
       </section>
 
       <section className="mb-6 grid gap-4 lg:grid-cols-2">
@@ -370,17 +432,19 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                     childName: formData.get("childName"),
                     email: formData.get("email"),
                     password: formData.get("password"),
-                    avatarEmoji: formData.get("avatarEmoji") || "⭐"
+                    avatarEmoji: formData.get("avatarEmoji") || selectedAvatar
                   })
                 });
                 form.reset();
-              });
+                setSelectedAvatar("⭐");
+              }, "Child account created");
             }}
           >
             <Input name="childName" label="Child name" required />
             <Input name="email" label="Child email" type="email" required />
             <Input name="password" label="Child password" type="password" required />
-            <Input name="avatarEmoji" label="Avatar emoji" defaultValue="⭐" />
+            <input type="hidden" name="avatarEmoji" value={selectedAvatar} />
+            <AvatarPicker value={selectedAvatar} onChange={setSelectedAvatar} />
             <Button type="submit" loading={saving}>
               Create Child Account
             </Button>
@@ -406,7 +470,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                   })
                 });
                 form.reset();
-              });
+              }, "Points updated");
             }}
           >
             <label className="flex flex-col gap-1 text-sm font-medium">
@@ -466,7 +530,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                 setTaskType("RECURRING");
                 setRecurrenceType("DAILY");
                 setWeekdays([1, 2, 3, 4, 5]);
-              });
+              }, "Task created");
             }}
           >
             <label className="flex flex-col gap-1 text-sm font-medium">
@@ -596,7 +660,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                       isActive: formData.get("isActive") === "on"
                     })
                   });
-                });
+                }, "Task updated");
               }}
             >
               <label className="flex flex-col gap-1 text-sm font-medium">
@@ -746,7 +810,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                   })
                 });
                 form.reset();
-              });
+              }, "Reward created");
             }}
           >
             <Input name="title" label="Reward name" required />
@@ -783,7 +847,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                       isActive: formData.get("isActive") === "on"
                     })
                   });
-                });
+                }, "Reward updated");
               }}
             >
               <label className="flex flex-col gap-1 text-sm font-medium">
@@ -855,7 +919,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ decision: "APPROVE" })
                           });
-                        })
+                        }, "Task completion approved")
                       }
                     >
                       Approve
@@ -872,7 +936,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ decision: "REJECT" })
                           });
-                        })
+                        }, "Task completion rejected")
                       }
                     >
                       Reject
@@ -911,7 +975,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ decision: "APPROVE" })
                           });
-                        })
+                        }, "Reward approved")
                       }
                     >
                       Approve
@@ -928,7 +992,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ decision: "REJECT" })
                           });
-                        })
+                        }, "Reward rejected")
                       }
                     >
                       Reject
@@ -945,50 +1009,71 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
         <Card>
           <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Active Tasks & Rewards</h2>
           <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
-            {data.tasks.map((task) => (
-              <div key={task.id} className="rounded-xl border border-slate-200 p-3">
-                <p className="font-semibold">{task.title}</p>
-                <p className="text-xs text-slate-500">
-                  {task.assignedChild.childProfile?.avatarEmoji ?? "⭐"} {task.assignedChild.displayName} • {task.points} pts •{" "}
-                  {task.taskType.replace("_", " ")} / {task.recurrenceType}
-                </p>
-              </div>
-            ))}
+            {data.tasks.length === 0 ? (
+              <p className="text-sm text-slate-500">No tasks available yet.</p>
+            ) : (
+              data.tasks.map((task) => (
+                <div key={task.id} className="rounded-xl border border-slate-200 p-3">
+                  <p className="font-semibold">{task.title}</p>
+                  <p className="text-xs text-slate-500">
+                    {task.assignedChild.childProfile?.avatarEmoji ?? "⭐"} {task.assignedChild.displayName} • {task.points} pts •{" "}
+                    {task.taskType.replace("_", " ")} / {task.recurrenceType}
+                  </p>
+                </div>
+              ))
+            )}
           </div>
 
           <h3 className="mb-2 mt-4 text-lg font-bold">Rewards Catalog</h3>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {data.rewards.map((reward) => (
-              <div key={reward.id} className="rounded-xl border border-slate-200 p-3">
-                <p className="text-sm font-semibold">
-                  {reward.iconEmoji} {reward.title}
-                </p>
-                <p className="text-xs text-slate-500">{reward.cost} pts</p>
-              </div>
-            ))}
+            {data.rewards.length === 0 ? (
+              <p className="text-sm text-slate-500">No rewards in catalog yet.</p>
+            ) : (
+              data.rewards.map((reward) => (
+                <div key={reward.id} className="rounded-xl border border-slate-200 p-3">
+                  <p className="text-sm font-semibold">
+                    {reward.iconEmoji} {reward.title}
+                  </p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="rounded-full bg-board-sun/20 px-2 py-0.5 text-[10px] font-semibold text-board-ink">
+                      {reward.cost} pts
+                    </span>
+                    <span className="rounded-full bg-board-mint/15 px-2 py-0.5 text-[10px] font-semibold text-board-ink">
+                      Reward Badge
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </Card>
 
         <Card>
           <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Activity Timeline</h2>
           <div className="relative max-h-[420px] overflow-y-auto pr-1">
-            <span className="absolute left-[11px] top-1 h-[95%] w-px bg-slate-200" />
-            <div className="space-y-3">
-              {data.activity.map((event) => (
-                <div key={event.id} className="relative rounded-xl border border-slate-200 p-3 pl-7">
-                  <span className="absolute left-2.5 top-5 h-2.5 w-2.5 rounded-full bg-board-mint" />
-                  <div className="mb-1 flex items-center gap-2">
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-slate-600">
-                      {formatEventType(event.type)}
-                    </span>
-                  </div>
-                  <p className="text-sm font-medium">{event.message}</p>
-                  <p className="text-xs text-slate-500">
-                    {new Date(event.createdAt).toLocaleString()} • {event.actor?.displayName ?? "System"}
-                  </p>
+            {data.activity.length === 0 ? (
+              <p className="text-sm text-slate-500">No activity yet. Events will appear here as your family uses StarBoard.</p>
+            ) : (
+              <>
+                <span className="absolute left-[11px] top-1 h-[95%] w-px bg-slate-200" />
+                <div className="space-y-3">
+                  {data.activity.map((event) => (
+                    <div key={event.id} className="relative rounded-xl border border-slate-200 p-3 pl-7">
+                      <span className="absolute left-2.5 top-5 h-2.5 w-2.5 rounded-full bg-board-mint" />
+                      <div className="mb-1 flex items-center gap-2">
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-slate-600">
+                          {formatEventType(event.type)}
+                        </span>
+                      </div>
+                      <p className="text-sm font-medium">{event.message}</p>
+                      <p className="text-xs text-slate-500">
+                        {new Date(event.createdAt).toLocaleString()} • {event.actor?.displayName ?? "System"}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            )}
           </div>
         </Card>
       </section>

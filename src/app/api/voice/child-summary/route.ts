@@ -2,34 +2,35 @@ import { Prisma, RedemptionStatus, Role, TaskCompletionStatus } from "@prisma/cl
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { getChildPoints } from "@/lib/points/service";
-import { authenticateVoiceToken, parseBearerToken } from "@/lib/voice/token";
+import { voiceChildSummaryQuerySchema } from "@/lib/validation/voice";
+import { requireVoiceAuth, voiceError, voiceOk } from "@/lib/voice/http";
 
 export async function GET(request: NextRequest) {
-  const bearer = parseBearerToken(request.headers.get("authorization"));
-  const voiceToken = await authenticateVoiceToken(bearer);
-
-  if (!voiceToken) {
-    return Response.json({ error: "Unauthorized voice token" }, { status: 401 });
+  const auth = await requireVoiceAuth(request, { scope: "child-summary", maxRequests: 100 });
+  if (auth.response) {
+    return auth.response;
   }
 
-  const childId = request.nextUrl.searchParams.get("childId");
-  const childName = request.nextUrl.searchParams.get("childName");
+  const queryResult = voiceChildSummaryQuerySchema.safeParse({
+    childId: request.nextUrl.searchParams.get("childId") ?? undefined,
+    childName: request.nextUrl.searchParams.get("childName") ?? undefined
+  });
 
-  if (!childId && !childName) {
-    return Response.json({ error: "Provide childId or childName" }, { status: 400 });
+  if (!queryResult.success) {
+    return voiceError(queryResult.error.issues[0]?.message ?? "Validation failed", 422);
   }
 
   const childWhere: Prisma.UserWhereInput = {
-    familyId: voiceToken.familyId,
+    familyId: auth.token!.familyId,
     role: Role.CHILD,
     isActive: true
   };
 
-  if (childId) {
-    childWhere.id = childId;
-  } else if (childName) {
+  if (queryResult.data.childId) {
+    childWhere.id = queryResult.data.childId;
+  } else if (queryResult.data.childName) {
     childWhere.displayName = {
-      equals: childName,
+      equals: queryResult.data.childName,
       mode: "insensitive"
     };
   }
@@ -42,11 +43,11 @@ export async function GET(request: NextRequest) {
   });
 
   if (!child) {
-    return Response.json({ error: "Child not found" }, { status: 404 });
+    return voiceError("Child not found", 404);
   }
 
   const [points, pendingTasks, pendingRewards] = await Promise.all([
-    getChildPoints(voiceToken.familyId, child.id),
+    getChildPoints(auth.token!.familyId, child.id),
     db.taskCompletion.count({
       where: {
         childId: child.id,
@@ -56,21 +57,19 @@ export async function GET(request: NextRequest) {
     db.rewardRedemption.count({
       where: {
         childId: child.id,
-        familyId: voiceToken.familyId,
+        familyId: auth.token!.familyId,
         status: RedemptionStatus.REQUESTED
       }
     })
   ]);
 
-  return Response.json({
-    data: {
-      id: child.id,
-      name: child.displayName,
-      points,
-      currentStreak: child.childProfile?.currentStreak ?? 0,
-      longestStreak: child.childProfile?.longestStreak ?? 0,
-      pendingTaskApprovals: pendingTasks,
-      pendingRewardRequests: pendingRewards
-    }
+  return voiceOk({
+    id: child.id,
+    name: child.displayName,
+    points,
+    currentStreak: child.childProfile?.currentStreak ?? 0,
+    longestStreak: child.childProfile?.longestStreak ?? 0,
+    pendingTaskApprovals: pendingTasks,
+    pendingRewardRequests: pendingRewards
   });
 }

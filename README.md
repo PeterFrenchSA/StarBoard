@@ -214,14 +214,50 @@ curl "http://localhost:3000/api/voice/family-summary" \
   -H "Authorization: Bearer starboard-voice-dev-token"
 ```
 
+### Voice response format
+
+All voice endpoints return a consistent envelope:
+
+```json
+{
+  "ok": true,
+  "data": {},
+  "timestamp": "2026-03-10T12:00:00.000Z"
+}
+```
+
+Error example:
+
+```json
+{
+  "ok": false,
+  "error": "Unauthorized voice token",
+  "timestamp": "2026-03-10T12:00:00.000Z"
+}
+```
+
+Voice endpoints are family-scoped, token-authenticated, validated with Zod, and rate-limited.
+
 ## Siri Shortcuts / Google Assistant Readiness
 
-The voice endpoints are designed for private household automation:
+The voice endpoints are designed for private household automation and can be wired into shortcut tools:
 
 - Use bearer token authentication with salted token hashing in DB.
-- In Apple Shortcuts or Android workflows, call the HTTP endpoints above.
+- In Apple Shortcuts:
+  - create a `Get Contents of URL` action
+  - set method (`POST` or `GET`), URL, JSON body, and `Authorization: Bearer <token>` header
+  - optionally parse `data.points` or `data.leaderboard[0]` from JSON result for spoken feedback
+- In Google Home / Google Assistant automations:
+  - trigger a webhook-capable automation action
+  - call the same voice endpoints with bearer token header
+  - map structured JSON response fields into spoken confirmations
 - Keep the token in device secret storage where possible.
 - Rotate tokens by updating `VoiceApiToken` records.
+- Recommended first shortcuts:
+  - `Add 10 points for Leia` -> `/api/voice/add-points`
+  - `Complete William room task` -> `/api/voice/complete-task`
+  - `How many stars does Leia have?` -> `/api/voice/child-summary`
+  - `Family leaderboard` -> `/api/voice/family-summary`
 
 ## Ubuntu VPS Deployment
 
@@ -285,5 +321,6 @@ Set secure values in `.env` before deploy:
 
 - Manifest at `src/app/manifest.ts`
 - Service worker at `public/sw.js`
-- Install prompt support in app shell
+- Install prompt support in app shell (`beforeinstallprompt`)
+- Maskable app icon included for Android launchers
 - Offline fallback route: `/offline`

@@ -2,19 +2,17 @@ import { RedemptionStatus, Role, TaskCompletionStatus } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { getPointsByChildIds } from "@/lib/points/service";
-import { authenticateVoiceToken, parseBearerToken } from "@/lib/voice/token";
+import { requireVoiceAuth, voiceOk } from "@/lib/voice/http";
 
 export async function GET(request: NextRequest) {
-  const bearer = parseBearerToken(request.headers.get("authorization"));
-  const voiceToken = await authenticateVoiceToken(bearer);
-
-  if (!voiceToken) {
-    return Response.json({ error: "Unauthorized voice token" }, { status: 401 });
+  const auth = await requireVoiceAuth(request, { scope: "family-summary", maxRequests: 120 });
+  if (auth.response) {
+    return auth.response;
   }
 
   const children = await db.user.findMany({
     where: {
-      familyId: voiceToken.familyId,
+      familyId: auth.token!.familyId,
       role: Role.CHILD,
       isActive: true
     },
@@ -25,7 +23,7 @@ export async function GET(request: NextRequest) {
   });
 
   const pointsByChild = await getPointsByChildIds(
-    voiceToken.familyId,
+    auth.token!.familyId,
     children.map((child) => child.id)
   );
 
@@ -33,14 +31,14 @@ export async function GET(request: NextRequest) {
     db.taskCompletion.count({
       where: {
         task: {
-          familyId: voiceToken.familyId
+          familyId: auth.token!.familyId
         },
         status: TaskCompletionStatus.PENDING_APPROVAL
       }
     }),
     db.rewardRedemption.count({
       where: {
-        familyId: voiceToken.familyId,
+        familyId: auth.token!.familyId,
         status: RedemptionStatus.REQUESTED
       }
     })
@@ -55,14 +53,12 @@ export async function GET(request: NextRequest) {
 
   const totalPoints = childSummaries.reduce((sum, child) => sum + child.points, 0);
 
-  return Response.json({
-    data: {
-      familyId: voiceToken.familyId,
-      totalChildren: children.length,
-      totalPoints,
-      pendingTaskApprovals,
-      pendingRewardRequests,
-      leaderboard: childSummaries.sort((a, b) => b.points - a.points)
-    }
+  return voiceOk({
+    familyId: auth.token!.familyId,
+    totalChildren: children.length,
+    totalPoints,
+    pendingTaskApprovals,
+    pendingRewardRequests,
+    leaderboard: childSummaries.sort((a, b) => b.points - a.points)
   });
 }

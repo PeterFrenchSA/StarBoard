@@ -1,8 +1,8 @@
-const CACHE_NAME = "starboard-v1";
-const SHELL_URLS = ["/", "/login", "/register", "/offline", "/icons/icon-192.svg"];
+const CACHE_VERSION = "starboard-v2";
+const SHELL_URLS = ["/", "/login", "/register", "/offline", "/icons/icon-192.svg", "/icons/icon-maskable.svg"];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_URLS)));
+  event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(SHELL_URLS)));
   self.skipWaiting();
 });
 
@@ -11,13 +11,45 @@ self.addEventListener("activate", (event) => {
     caches.keys().then((keys) =>
       Promise.all(
         keys
-          .filter((key) => key !== CACHE_NAME)
+          .filter((key) => key !== CACHE_VERSION)
           .map((key) => caches.delete(key))
       )
     )
   );
   self.clients.claim();
 });
+
+function isApiRequest(request) {
+  const url = new URL(request.url);
+  return url.pathname.startsWith("/api/");
+}
+
+async function staleWhileRevalidate(request) {
+  const cache = await caches.open(CACHE_VERSION);
+  const cached = await cache.match(request);
+
+  const networkFetch = fetch(request)
+    .then((response) => {
+      if (response.ok && request.method === "GET") {
+        cache.put(request, response.clone());
+      }
+      return response;
+    })
+    .catch(() => null);
+
+  if (cached) {
+    void networkFetch;
+    return cached;
+  }
+
+  const network = await networkFetch;
+
+  if (network) {
+    return network;
+  }
+
+  return caches.match("/offline");
+}
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
@@ -26,30 +58,21 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  const url = new URL(request.url);
+
+  if (url.origin !== self.location.origin || isApiRequest(request)) {
+    return;
+  }
+
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request).catch(async () => {
-        const cache = await caches.open(CACHE_NAME);
-        const offline = await cache.match("/offline");
-        return offline || Response.error();
+        const cache = await caches.open(CACHE_VERSION);
+        return (await cache.match("/offline")) || Response.error();
       })
     );
     return;
   }
 
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) {
-        return cached;
-      }
-
-      return fetch(request)
-        .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          return response;
-        })
-        .catch(() => caches.match("/icons/icon-192.svg"));
-    })
-  );
+  event.respondWith(staleWhileRevalidate(request));
 });

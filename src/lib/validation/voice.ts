@@ -23,3 +23,11 @@ export const voiceCompleteTaskSchema = z.object({
   message: "Provide taskId or taskTitle",
   path: ["taskTitle"]
 });
+
+export const voiceChildSummaryQuerySchema = z.object({
+  childId: z.string().cuid().optional(),
+  childName: z.string().trim().min(2).max(80).optional()
+}).refine((v) => Boolean(v.childId || v.childName), {
+  message: "Provide childId or childName",
+  path: ["childName"]
+});

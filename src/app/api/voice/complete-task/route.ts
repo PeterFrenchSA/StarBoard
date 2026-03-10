@@ -7,39 +7,32 @@ import {
 } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { parseJsonBody } from "@/lib/http";
 import { createPointTransaction } from "@/lib/points/service";
-import { getRequestIdentity, rateLimit } from "@/lib/rate-limit";
 import { canTaskOccurToday, getOccurrenceDate } from "@/lib/tasks/recurrence";
 import { updateChildStreak } from "@/lib/tasks/streak";
 import { voiceCompleteTaskSchema } from "@/lib/validation/voice";
-import { authenticateVoiceToken, parseBearerToken } from "@/lib/voice/token";
+import { requireVoiceAuth, voiceError, voiceOk } from "@/lib/voice/http";
 
 export async function POST(request: NextRequest) {
-  const bearer = parseBearerToken(request.headers.get("authorization"));
-  const voiceToken = await authenticateVoiceToken(bearer);
-
-  if (!voiceToken) {
-    return Response.json({ error: "Unauthorized voice token" }, { status: 401 });
+  const auth = await requireVoiceAuth(request, { scope: "complete-task" });
+  if (auth.response) {
+    return auth.response;
   }
 
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
-  const limit = rateLimit(getRequestIdentity(ip, `voice-complete-task-${voiceToken.id}`), 60, 60 * 1000);
-
-  if (!limit.allowed) {
-    return Response.json(
-      { error: "Rate limit exceeded" },
-      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } }
-    );
+  let requestBody: unknown;
+  try {
+    requestBody = await request.json();
+  } catch {
+    return voiceError("Invalid JSON payload", 400);
   }
 
-  const payload = await parseJsonBody(request, voiceCompleteTaskSchema);
-  if ("error" in payload) {
-    return payload.error;
+  const payload = voiceCompleteTaskSchema.safeParse(requestBody);
+  if (!payload.success) {
+    return voiceError(payload.error.issues[0]?.message ?? "Validation failed", 422);
   }
 
   const childWhere: Prisma.UserWhereInput = {
-    familyId: voiceToken.familyId,
+    familyId: auth.token!.familyId,
     role: Role.CHILD,
     isActive: true
   };
@@ -56,11 +49,11 @@ export async function POST(request: NextRequest) {
   const child = await db.user.findFirst({ where: childWhere });
 
   if (!child) {
-    return Response.json({ error: "Child not found" }, { status: 404 });
+    return voiceError("Child not found", 404);
   }
 
   const taskWhere: Prisma.TaskWhereInput = {
-    familyId: voiceToken.familyId,
+    familyId: auth.token!.familyId,
     assignedChildId: child.id,
     isActive: true
   };
@@ -77,11 +70,11 @@ export async function POST(request: NextRequest) {
   const task = await db.task.findFirst({ where: taskWhere });
 
   if (!task) {
-    return Response.json({ error: "Task not found" }, { status: 404 });
+    return voiceError("Task not found", 404);
   }
 
   if (!canTaskOccurToday(task)) {
-    return Response.json({ error: "Task is not scheduled for today" }, { status: 409 });
+    return voiceError("Task is not scheduled for today", 409);
   }
 
   const occurrenceDate = getOccurrenceDate();
@@ -95,7 +88,7 @@ export async function POST(request: NextRequest) {
   });
 
   if (existingToday) {
-    return Response.json({ error: "Task already completed today" }, { status: 409 });
+    return voiceError("Task already completed today", 409);
   }
 
   const completion = await db.taskCompletion.create({
@@ -111,7 +104,7 @@ export async function POST(request: NextRequest) {
   });
 
   await createPointTransaction({
-    familyId: voiceToken.familyId,
+    familyId: auth.token!.familyId,
     childId: child.id,
     actorId: null,
     type: PointTransactionType.TASK_REWARD,
@@ -125,23 +118,21 @@ export async function POST(request: NextRequest) {
 
   await db.activityLog.create({
     data: {
-      familyId: voiceToken.familyId,
+      familyId: auth.token!.familyId,
       childId: child.id,
       type: ActivityType.VOICE_TASK_COMPLETED,
       message: `Voice action completed task "${task.title}" for ${child.displayName}`,
       metadata: {
-        voiceTokenLabel: voiceToken.label,
+        voiceTokenLabel: auth.token!.label,
         completionId: completion.id
       }
     }
   });
 
-  return Response.json({
-    data: {
-      completionId: completion.id,
-      child: child.displayName,
-      task: task.title,
-      pointsAwarded: task.points
-    }
+  return voiceOk({
+    completionId: completion.id,
+    child: child.displayName,
+    task: task.title,
+    pointsAwarded: task.points
   });
 }
