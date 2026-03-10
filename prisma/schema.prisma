@@ -1,0 +1,259 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  PARENT
+  CHILD
+}
+
+enum TaskType {
+  ONE_OFF
+  RECURRING
+}
+
+enum RecurrenceType {
+  NONE
+  DAILY
+  WEEKLY
+  WEEKDAYS
+}
+
+enum TaskCompletionStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  AUTO_APPROVED
+}
+
+enum RedemptionStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+}
+
+enum PointTransactionType {
+  MANUAL_ADD
+  MANUAL_REMOVE
+  TASK_REWARD
+  REWARD_REDEMPTION
+  VOICE_ADJUSTMENT
+}
+
+enum ActivityType {
+  FAMILY_CREATED
+  USER_CREATED
+  LOGIN
+  TASK_CREATED
+  TASK_COMPLETED
+  TASK_APPROVED
+  TASK_REJECTED
+  POINTS_ADJUSTED
+  REWARD_CREATED
+  REWARD_REQUESTED
+  REWARD_APPROVED
+  REWARD_REJECTED
+  VOICE_POINTS_ADDED
+  VOICE_TASK_COMPLETED
+}
+
+model Family {
+  id                String             @id @default(cuid())
+  name              String
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  users             User[]
+  tasks             Task[]
+  rewards           Reward[]
+  pointTransactions PointTransaction[]
+  activityLogs      ActivityLog[]
+  voiceApiTokens    VoiceApiToken[]
+  rewardRedemptions RewardRedemption[]
+
+  @@index([name])
+}
+
+model User {
+  id                  String             @id @default(cuid())
+  familyId            String
+  family              Family             @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  role                Role
+  email               String             @unique
+  passwordHash        String
+  displayName         String
+  isActive            Boolean            @default(true)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  childProfile        ChildProfile?
+  createdTasks        Task[]             @relation("TaskCreator")
+  assignedTasks       Task[]             @relation("TaskAssignee")
+  taskCompletions     TaskCompletion[]   @relation("CompletionChild")
+  reviewedCompletions TaskCompletion[]   @relation("CompletionReviewer")
+  createdRewards      Reward[]           @relation("RewardCreator")
+  rewardRequests      RewardRedemption[] @relation("RewardChild")
+  reviewedRedemptions RewardRedemption[] @relation("RewardReviewer")
+  childPoints         PointTransaction[] @relation("PointsChild")
+  actorPoints         PointTransaction[] @relation("PointsActor")
+  activityAsActor     ActivityLog[]      @relation("ActivityActor")
+  activityAsChild     ActivityLog[]      @relation("ActivityChild")
+  createdVoiceTokens  VoiceApiToken[]    @relation("VoiceTokenCreator")
+
+  @@index([familyId, role])
+  @@index([familyId, displayName])
+}
+
+model ChildProfile {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  avatarEmoji    String    @default("⭐")
+  colorTheme     String    @default("sun")
+  currentStreak  Int       @default(0)
+  longestStreak  Int       @default(0)
+  lastStreakDate DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Task {
+  id               String           @id @default(cuid())
+  familyId         String
+  family           Family           @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  createdById      String
+  createdBy        User             @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  assignedChildId  String
+  assignedChild    User             @relation("TaskAssignee", fields: [assignedChildId], references: [id], onDelete: Cascade)
+  title            String
+  description      String?
+  points           Int
+  taskType         TaskType         @default(ONE_OFF)
+  recurrenceType   RecurrenceType   @default(NONE)
+  weekdays         Int[]            @default([])
+  requiresApproval Boolean          @default(true)
+  isActive         Boolean          @default(true)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  completions      TaskCompletion[]
+
+  @@index([familyId, assignedChildId, isActive])
+}
+
+model TaskCompletion {
+  id             String               @id @default(cuid())
+  taskId         String
+  task           Task                 @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  childId        String
+  child          User                 @relation("CompletionChild", fields: [childId], references: [id], onDelete: Cascade)
+  occurrenceDate DateTime
+  completedAt    DateTime             @default(now())
+  status         TaskCompletionStatus @default(PENDING_APPROVAL)
+  reviewedAt     DateTime?
+  reviewedById   String?
+  reviewedBy     User?                @relation("CompletionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewNote     String?
+  pointsAwarded  Int                  @default(0)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@unique([taskId, childId, occurrenceDate])
+  @@index([status, taskId])
+  @@index([childId, completedAt])
+}
+
+model Reward {
+  id          String             @id @default(cuid())
+  familyId    String
+  family      Family             @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User               @relation("RewardCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  cost        Int
+  iconEmoji   String             @default("🎁")
+  isActive    Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  redemptions RewardRedemption[]
+
+  @@index([familyId, isActive])
+}
+
+model RewardRedemption {
+  id           String           @id @default(cuid())
+  familyId     String
+  family       Family           @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  rewardId     String
+  reward       Reward           @relation(fields: [rewardId], references: [id], onDelete: Cascade)
+  childId      String
+  child        User             @relation("RewardChild", fields: [childId], references: [id], onDelete: Cascade)
+  pointsCost   Int
+  status       RedemptionStatus @default(REQUESTED)
+  requestedAt  DateTime         @default(now())
+  reviewedAt   DateTime?
+  reviewedById String?
+  reviewedBy   User?            @relation("RewardReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  note         String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([familyId, status, requestedAt])
+  @@index([childId, requestedAt])
+}
+
+model PointTransaction {
+  id            String               @id @default(cuid())
+  familyId      String
+  family        Family               @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  childId       String
+  child         User                 @relation("PointsChild", fields: [childId], references: [id], onDelete: Cascade)
+  actorId       String?
+  actor         User?                @relation("PointsActor", fields: [actorId], references: [id], onDelete: SetNull)
+  type          PointTransactionType
+  amount        Int
+  note          String
+  referenceType String?
+  referenceId   String?
+  createdAt     DateTime             @default(now())
+
+  @@index([familyId, childId, createdAt])
+  @@index([childId, type])
+}
+
+model ActivityLog {
+  id        String       @id @default(cuid())
+  familyId  String
+  family    Family       @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  actorId   String?
+  actor     User?        @relation("ActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+  childId   String?
+  child     User?        @relation("ActivityChild", fields: [childId], references: [id], onDelete: SetNull)
+  type      ActivityType
+  message   String
+  metadata  Json?
+  createdAt DateTime     @default(now())
+
+  @@index([familyId, createdAt])
+  @@index([type, createdAt])
+}
+
+model VoiceApiToken {
+  id          String    @id @default(cuid())
+  familyId    String
+  family      Family    @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  label       String
+  tokenHash   String    @unique
+  isActive    Boolean   @default(true)
+  createdById String?
+  createdBy   User?     @relation("VoiceTokenCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([familyId, isActive])
+}

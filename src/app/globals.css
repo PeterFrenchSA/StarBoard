@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-top: #f8fcff;
+  --bg-bottom: #eef7ff;
+  --ink: #12324f;
+  --font-body: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
+  --font-display: "Gill Sans", "Avenir Next", "Trebuchet MS", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 15% 20%, rgba(102, 185, 255, 0.25), transparent 34%),
+    radial-gradient(circle at 80% 0%, rgba(41, 199, 184, 0.2), transparent 35%),
+    linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+}
+
+main {
+  min-height: 100vh;
+}
+
+.sparkle {
+  position: relative;
+}
+
+.sparkle::after {
+  content: "";
+  position: absolute;
+  right: -10px;
+  top: -8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #f8b400;
+  animation: sparklePulse 1.8s ease-in-out infinite;
+}
+
+@keyframes sparklePulse {
+  0%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.8;
+  }
+
+  50% {
+    transform: scale(1.4);
+    opacity: 0.2;
+  }
+}
