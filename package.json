@@ -9,8 +9,8 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build --webpack",
-    "start": "next start",
+    "build": "NODE_ENV=production prisma generate && NODE_ENV=production next build --webpack",
+    "start": "NODE_ENV=production next start",
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
