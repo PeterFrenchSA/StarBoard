@@ -39,6 +39,45 @@ StarBoard is a self-hostable family star chart and rewards app built with Next.j
   - service worker shell caching
   - install prompt support
 
+## Suggested Folder Structure (PR #1 Foundation)
+
+```text
+src/
+  app/
+    (public)/
+      login/
+      register/
+    (app)/
+      parent/
+      child/
+    api/
+      auth/
+      parent/
+      child/
+      voice/
+    globals.css
+    layout.tsx
+    page.tsx
+  components/
+    dashboard/
+    ui/
+    pwa/
+  lib/
+    auth/
+    validation/
+    tasks/
+    rewards/
+    points/
+prisma/
+  schema.prisma
+  seed.ts
+  migrations/
+scripts/
+  bootstrap-server.sh
+  deploy.sh
+  update-app.sh
+```
+
 ## Quick Start (Docker, macOS/Linux)
 
 1. Copy env file:
@@ -49,7 +88,7 @@ cp .env.example .env
 
 2. Update `.env` values (especially `AUTH_SECRET`, `VOICE_TOKEN_SALT`, and DB password).
 
-3. Start local stack:
+3. Start local stack (`app + db`):
 
 ```bash
 docker compose up --build
