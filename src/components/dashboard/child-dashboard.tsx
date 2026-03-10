@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle2 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -24,6 +25,8 @@ type ChildOverview = {
     requiresApproval: boolean;
     availableToday: boolean;
     completedToday: boolean;
+    completed: boolean;
+    completedMessage: string | null;
   }>;
   rewards: Array<{
     id: string;
@@ -314,7 +317,7 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
               <p className="text-sm text-slate-500">No tasks assigned yet.</p>
             ) : (
               data.tasks.map((task) => {
-                const disabled = !task.availableToday || task.completedToday || saving;
+                const disabled = !task.availableToday || task.completed || saving;
                 return (
                   <div key={task.id} className="rounded-2xl border border-slate-200 p-3">
                     <p className="font-semibold">{task.title}</p>
@@ -325,26 +328,36 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
                     {!task.availableToday ? (
                       <p className="mt-2 text-xs font-semibold text-slate-500">Not scheduled for today</p>
                     ) : null}
-                    {task.completedToday ? (
-                      <p className="mt-2 text-xs font-semibold text-board-mint">Completed today</p>
+                    {task.completed ? (
+                      <p className="mt-2 text-xs font-semibold text-board-mint">{task.completedMessage ?? "Completed"}</p>
                     ) : null}
-                    <Button
-                      type="button"
-                      className="mt-3"
-                      loading={saving}
-                      disabled={disabled}
-                      onClick={() =>
-                        void handleAction(async () => {
-                          await fetchJson(`/api/child/tasks/${task.id}/complete`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({})
-                          });
-                        }, task.requiresApproval ? "Task submitted for review" : "Task completed and points awarded")
-                      }
-                    >
-                      Mark Complete
-                    </Button>
+                    {task.completed ? (
+                      <div className="mt-3 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-100 text-base font-black text-emerald-700">
+                        <CheckCircle2 className="h-6 w-6" />
+                        Done
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        className="mt-3 h-14 w-full text-base font-black"
+                        loading={saving}
+                        disabled={disabled}
+                        onClick={() =>
+                          void handleAction(async () => {
+                            await fetchJson(`/api/child/tasks/${task.id}/complete`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({})
+                            });
+                          }, task.requiresApproval ? "Task submitted for review" : "Task completed and points awarded")
+                        }
+                      >
+                        <span className="flex items-center justify-center gap-2">
+                          <CheckCircle2 className="h-6 w-6" />
+                          Mark As Done
+                        </span>
+                      </Button>
+                    )}
                   </div>
                 );
               })

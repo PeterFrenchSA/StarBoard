@@ -108,10 +108,22 @@ docker compose exec app npm run prisma:seed
 
 From default `.env.example`:
 
+- Child password for all seeded children: `StarKid123!`
+
+Dataset 1 (`Skywalkers - Task Allocation`):
 - Parent: `parent@starboard.local` / `ChangeMe123!`
-- Child Leia: `leia@starboard.local` / `StarKid123!`
-- Child William: `william@starboard.local` / `StarKid123!`
+- Children: `leia@starboard.local`, `william@starboard.local`
 - Voice token: `starboard-voice-dev-token`
+
+Dataset 2 (`Guardians - Approval Flow`):
+- Parent: `parent.approvals@starboard.local` / `ChangeMe123!`
+- Children: `asha@starboard.local`, `noah@starboard.local`
+- Voice token: `starboard-voice-approvals`
+
+Dataset 3 (`Rangers - Reward Redemption`):
+- Parent: `parent.rewards@starboard.local` / `ChangeMe123!`
+- Children: `mia@starboard.local`, `liam@starboard.local`
+- Voice token: `starboard-voice-rewards`
 
 Change these in production.
 

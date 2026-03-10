@@ -190,10 +190,26 @@ export async function getChildOverviewData(familyId: string, childId: string) {
       .map((completion) => completion.taskId)
   );
 
+  const oneOffSubmittedTaskIds = new Set(
+    completions
+      .filter(
+        (completion) =>
+          completion.task.taskType === "ONE_OFF" &&
+          completion.status !== TaskCompletionStatus.REJECTED
+      )
+      .map((completion) => completion.taskId)
+  );
+
   const tasksWithAvailability = tasks.map((task) => ({
     ...task,
-    availableToday: canTaskOccurToday(task),
-    completedToday: completedTodayTaskIds.has(task.id)
+    availableToday: canTaskOccurToday(task) && !oneOffSubmittedTaskIds.has(task.id),
+    completedToday: completedTodayTaskIds.has(task.id),
+    completed: completedTodayTaskIds.has(task.id) || oneOffSubmittedTaskIds.has(task.id),
+    completedMessage: oneOffSubmittedTaskIds.has(task.id)
+      ? "One-off already submitted"
+      : completedTodayTaskIds.has(task.id)
+        ? "Completed today"
+        : null
   }));
 
   const rewardsWithProgress = rewards.map((reward) => {
