@@ -223,6 +223,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
             className="grid gap-3"
             onSubmit={(event) => {
               event.preventDefault();
+              const form = event.currentTarget;
               const formData = new FormData(event.currentTarget);
               void handleAction(async () => {
                 await fetchJson("/api/parent/children", {
@@ -235,7 +236,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                     avatarEmoji: formData.get("avatarEmoji") || "⭐"
                   })
                 });
-                event.currentTarget.reset();
+                form.reset();
               });
             }}
           >
@@ -255,6 +256,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
             className="grid gap-3"
             onSubmit={(event) => {
               event.preventDefault();
+              const form = event.currentTarget;
               const formData = new FormData(event.currentTarget);
               void handleAction(async () => {
                 await fetchJson("/api/parent/points", {
@@ -266,7 +268,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                     note: formData.get("note")
                   })
                 });
-                event.currentTarget.reset();
+                form.reset();
               });
             }}
           >
@@ -304,6 +306,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
             className="grid gap-3"
             onSubmit={(event) => {
               event.preventDefault();
+              const form = event.currentTarget;
               const formData = new FormData(event.currentTarget);
               const normalizedRecurrence = taskType === "ONE_OFF" ? "NONE" : recurrenceType;
 
@@ -322,7 +325,10 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                     requiresApproval: formData.get("requiresApproval") === "on"
                   })
                 });
-                event.currentTarget.reset();
+                form.reset();
+                setTaskType("RECURRING");
+                setRecurrenceType("DAILY");
+                setWeekdays([1, 2, 3, 4, 5]);
               });
             }}
           >
@@ -432,6 +438,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
             className="grid gap-3"
             onSubmit={(event) => {
               event.preventDefault();
+              const form = event.currentTarget;
               const formData = new FormData(event.currentTarget);
 
               void handleAction(async () => {
@@ -445,7 +452,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                     iconEmoji: formData.get("iconEmoji") || "🎁"
                   })
                 });
-                event.currentTarget.reset();
+                form.reset();
               });
             }}
           >
