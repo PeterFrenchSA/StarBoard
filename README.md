@@ -51,6 +51,7 @@ The parent experience is split into focused sub-menus:
   - assigned tasks and completion flow
   - reward progress and redemption requests
   - points/task history
+  - child-selectable themes: Fairies, Dragons, Ninjas, Engineering
 - Activity/audit logging for key actions
 - Voice-ready token-auth endpoints:
   - `POST /api/voice/add-points`

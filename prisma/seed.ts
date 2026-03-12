@@ -281,7 +281,7 @@ async function seedTaskAllocationDataset(parentPasswordHash: string, childPasswo
     email: "leia@starboard.local",
     displayName: "Leia",
     avatarEmoji: "🌟",
-    colorTheme: "sun",
+    colorTheme: "fairies",
     currentStreak: 2,
     longestStreak: 4
   });
@@ -290,7 +290,7 @@ async function seedTaskAllocationDataset(parentPasswordHash: string, childPasswo
     email: "william@starboard.local",
     displayName: "William",
     avatarEmoji: "🚀",
-    colorTheme: "sky",
+    colorTheme: "dragons",
     currentStreak: 1,
     longestStreak: 3
   });
@@ -474,7 +474,7 @@ async function seedApprovalDataset(parentPasswordHash: string, childPasswordHash
     email: "asha@starboard.local",
     displayName: "Asha",
     avatarEmoji: "🧩",
-    colorTheme: "mint",
+    colorTheme: "ninjas",
     currentStreak: 3,
     longestStreak: 6
   });
@@ -483,7 +483,7 @@ async function seedApprovalDataset(parentPasswordHash: string, childPasswordHash
     email: "noah@starboard.local",
     displayName: "Noah",
     avatarEmoji: "🛹",
-    colorTheme: "sky",
+    colorTheme: "engineering",
     currentStreak: 1,
     longestStreak: 4
   });
@@ -668,7 +668,7 @@ async function seedRedemptionDataset(parentPasswordHash: string, childPasswordHa
     email: "mia@starboard.local",
     displayName: "Mia",
     avatarEmoji: "🎨",
-    colorTheme: "sun",
+    colorTheme: "fairies",
     currentStreak: 4,
     longestStreak: 8
   });
@@ -677,7 +677,7 @@ async function seedRedemptionDataset(parentPasswordHash: string, childPasswordHa
     email: "liam@starboard.local",
     displayName: "Liam",
     avatarEmoji: "⚽",
-    colorTheme: "coral",
+    colorTheme: "dragons",
     currentStreak: 2,
     longestStreak: 5
   });

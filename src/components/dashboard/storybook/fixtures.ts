@@ -62,6 +62,7 @@ export const parentOverviewFixture = {
       pendingRewards: 1,
       childProfile: {
         avatarEmoji: "🌟",
+        colorTheme: "fairies",
         currentStreak: 5,
         longestStreak: 9
       }
@@ -75,6 +76,7 @@ export const parentOverviewFixture = {
       pendingRewards: 0,
       childProfile: {
         avatarEmoji: "🚀",
+        colorTheme: "dragons",
         currentStreak: 3,
         longestStreak: 6
       }
@@ -90,7 +92,7 @@ export const parentOverviewFixture = {
       },
       child: {
         displayName: "Leia",
-        childProfile: { avatarEmoji: "🌟" }
+        childProfile: { avatarEmoji: "🌟", colorTheme: "fairies" }
       }
     },
     {
@@ -102,7 +104,7 @@ export const parentOverviewFixture = {
       },
       child: {
         displayName: "William",
-        childProfile: { avatarEmoji: "🚀" }
+        childProfile: { avatarEmoji: "🚀", colorTheme: "dragons" }
       }
     }
   ],
@@ -117,7 +119,7 @@ export const parentOverviewFixture = {
       },
       child: {
         displayName: "Leia",
-        childProfile: { avatarEmoji: "🌟" }
+        childProfile: { avatarEmoji: "🌟", colorTheme: "fairies" }
       }
     }
   ],
@@ -138,7 +140,7 @@ export const parentOverviewFixture = {
       assignedChild: {
         id: "child-leia",
         displayName: "Leia",
-        childProfile: { avatarEmoji: "🌟" }
+        childProfile: { avatarEmoji: "🌟", colorTheme: "fairies" }
       }
     },
     {
@@ -157,7 +159,7 @@ export const parentOverviewFixture = {
       assignedChild: {
         id: "child-william",
         displayName: "William",
-        childProfile: { avatarEmoji: "🚀" }
+        childProfile: { avatarEmoji: "🚀", colorTheme: "dragons" }
       }
     },
     {
@@ -176,7 +178,7 @@ export const parentOverviewFixture = {
       assignedChild: {
         id: "child-william",
         displayName: "William",
-        childProfile: { avatarEmoji: "🚀" }
+        childProfile: { avatarEmoji: "🚀", colorTheme: "dragons" }
       }
     },
     {
@@ -195,7 +197,7 @@ export const parentOverviewFixture = {
       assignedChild: {
         id: "child-leia",
         displayName: "Leia",
-        childProfile: { avatarEmoji: "🌟" }
+        childProfile: { avatarEmoji: "🌟", colorTheme: "fairies" }
       }
     }
   ],
@@ -370,7 +372,7 @@ export const parentOverviewHeavyApprovalsFixture = {
       },
       child: {
         displayName: "Leia",
-        childProfile: { avatarEmoji: "🌟" }
+        childProfile: { avatarEmoji: "🌟", colorTheme: "fairies" }
       }
     }
   ],
@@ -386,7 +388,7 @@ export const parentOverviewHeavyApprovalsFixture = {
       },
       child: {
         displayName: "William",
-        childProfile: { avatarEmoji: "🚀" }
+        childProfile: { avatarEmoji: "🚀", colorTheme: "dragons" }
       }
     }
   ],
@@ -402,6 +404,7 @@ export const childOverviewFixture = {
     displayName: "Leia",
     childProfile: {
       avatarEmoji: "🌟",
+      colorTheme: "fairies",
       currentStreak: 5,
       longestStreak: 9
     }

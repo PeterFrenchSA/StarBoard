@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, PlayCircle, TimerReset } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { Button } from "@/components/ui/button";
@@ -8,12 +8,13 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ProgressRing } from "@/components/ui/progress-ring";
 import { Toast } from "@/components/ui/toast";
+import { CHILD_THEME_OPTIONS, type ChildThemeValue, getChildTheme, normalizeChildTheme } from "@/lib/themes/child-themes";
 
 type ChildOverview = {
   child: {
     id: string;
     displayName: string;
-    childProfile: { avatarEmoji: string; currentStreak: number; longestStreak: number } | null;
+    childProfile: { avatarEmoji: string; colorTheme: string; currentStreak: number; longestStreak: number } | null;
   };
   points: number;
   badges: Array<{ id: string; label: string; earned: boolean }>;
@@ -97,6 +98,17 @@ function formatCountdown(totalSeconds: number): string {
     .padStart(2, "0");
   const seconds = (safeSeconds % 60).toString().padStart(2, "0");
   return `${minutes}:${seconds}`;
+}
+
+function buildThemeStyle(theme: ReturnType<typeof getChildTheme>): CSSProperties {
+  return {
+    "--child-theme-heading": theme.headingColor,
+    "--child-theme-border": theme.borderColor,
+    "--child-theme-primary": theme.primaryButton,
+    "--child-theme-primary-hover": theme.primaryButtonHover,
+    "--child-theme-secondary": theme.secondaryButton,
+    "--child-theme-secondary-hover": theme.secondaryButtonHover
+  } as CSSProperties;
 }
 
 export function ChildDashboard({ childName }: ChildDashboardProps) {
@@ -203,6 +215,25 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
     return Math.max(0, Math.min(100, Math.round((data.points / nextReward.cost) * 100)));
   }, [data, nextReward]);
 
+  const activeTheme = getChildTheme(data?.child.childProfile?.colorTheme);
+  const activeThemeValue = normalizeChildTheme(data?.child.childProfile?.colorTheme);
+  const themedStyle = buildThemeStyle(activeTheme);
+  const themedBackground = `radial-gradient(circle at 15% 8%, ${activeTheme.backgroundAccent}, transparent 42%), linear-gradient(180deg, ${activeTheme.backgroundStart}, ${activeTheme.backgroundEnd})`;
+
+  async function handleThemeChange(nextTheme: ChildThemeValue) {
+    if (nextTheme === activeThemeValue) {
+      return;
+    }
+
+    await handleAction(async () => {
+      await fetchJson("/api/child/theme", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ theme: nextTheme })
+      });
+    }, `Theme changed to ${CHILD_THEME_OPTIONS.find((theme) => theme.value === nextTheme)?.label ?? nextTheme}`);
+  }
+
   if (loading) {
     return (
       <main className="mx-auto max-w-7xl px-4 py-6">
@@ -229,9 +260,17 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
   }
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-6">
+    <main
+      className="mx-auto max-w-7xl rounded-[2rem] border px-4 py-6"
+      style={{
+        ...themedStyle,
+        background: themedBackground,
+        borderColor: activeTheme.borderColor,
+        boxShadow: `0 20px 50px ${activeTheme.glowColor}`
+      }}
+    >
       <DashboardHeader
-        title={`${data.child.childProfile?.avatarEmoji ?? "⭐"} My StarBoard`}
+        title={`${activeTheme.accentEmoji} ${data.child.childProfile?.avatarEmoji ?? "⭐"} My StarBoard`}
         subtitle={`Hi ${data.child.displayName}! Keep your streak alive and unlock rewards.`}
       />
 
@@ -246,27 +285,49 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
       <section className="mb-6 grid gap-4 lg:grid-cols-[2fr_1fr]">
         <Card className="p-5">
           <div className="flex flex-wrap items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-board-sky to-board-mint text-3xl shadow-sm">
+            <div
+              className="flex h-16 w-16 items-center justify-center rounded-2xl text-3xl shadow-sm"
+              style={{
+                background: `linear-gradient(135deg, ${activeTheme.backgroundAccent}, rgba(255,255,255,0.9))`
+              }}
+            >
               {data.child.childProfile?.avatarEmoji ?? "⭐"}
             </div>
             <div>
               <p className="text-xs uppercase tracking-wide text-slate-500">Child Profile</p>
-              <h2 className="font-[var(--font-display)] text-2xl font-black">{data.child.displayName}</h2>
+              <h2 className="font-[var(--font-display)] text-2xl font-black text-[color:var(--child-theme-heading)]">
+                {data.child.displayName}
+              </h2>
               <p className="text-sm text-slate-600">Stay consistent to build your streak and unlock rewards.</p>
+            </div>
+            <div className="ml-auto min-w-[180px]">
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Theme</label>
+              <select
+                value={activeThemeValue}
+                disabled={saving}
+                onChange={(event) => void handleThemeChange(event.target.value as ChildThemeValue)}
+                className="h-10 w-full rounded-xl border border-slate-200 bg-white/95 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:ring-2 focus:ring-[color:var(--child-theme-primary)]"
+              >
+                {CHILD_THEME_OPTIONS.map((themeOption) => (
+                  <option key={themeOption.value} value={themeOption.value}>
+                    {themeOption.accentEmoji} {themeOption.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
           <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
             <div className="rounded-xl bg-slate-50 p-3">
-              <p className="text-lg font-black text-board-mint">{data.tasks.length}</p>
+              <p className="text-lg font-black text-[color:var(--child-theme-primary)]">{data.tasks.length}</p>
               <p>Assigned Tasks</p>
             </div>
             <div className="rounded-xl bg-slate-50 p-3">
-              <p className="text-lg font-black text-board-sun">{completedTasks.length}</p>
+              <p className="text-lg font-black text-[color:var(--child-theme-secondary)]">{completedTasks.length}</p>
               <p>Completed</p>
             </div>
             <div className="rounded-xl bg-slate-50 p-3">
-              <p className="text-lg font-black text-board-coral">
+              <p className="text-lg font-black text-[color:var(--child-theme-heading)]">
                 {data.rewards.filter((reward) => reward.affordable).length}
               </p>
               <p>Rewards Ready</p>
@@ -286,11 +347,11 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
       <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Card className="relative p-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">Stars / Points</p>
-          <p className="text-3xl font-black text-board-mint">{data.points}</p>
+          <p className="text-3xl font-black text-[color:var(--child-theme-primary)]">{data.points}</p>
           {pointsDelta ? (
             <span
               className={`absolute right-3 top-3 rounded-full px-2 py-1 text-xs font-black text-white animate-points-flash ${
-                pointsDelta > 0 ? "bg-board-mint" : "bg-board-coral"
+                pointsDelta > 0 ? "bg-[color:var(--child-theme-primary)]" : "bg-[color:var(--child-theme-heading)]"
               }`}
             >
               {pointsDelta > 0 ? `+${pointsDelta}` : pointsDelta}
@@ -299,12 +360,16 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
         </Card>
         <Card className="p-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">Current Streak</p>
-          <p className="text-3xl font-black text-board-sun">{data.child.childProfile?.currentStreak ?? 0}</p>
+          <p className="text-3xl font-black text-[color:var(--child-theme-secondary)]">
+            {data.child.childProfile?.currentStreak ?? 0}
+          </p>
           <p className="mt-1 text-xs text-slate-500">🔥 Keep it alive today</p>
         </Card>
         <Card className="p-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">Best Streak</p>
-          <p className="text-3xl font-black text-board-coral">{data.child.childProfile?.longestStreak ?? 0}</p>
+          <p className="text-3xl font-black text-[color:var(--child-theme-heading)]">
+            {data.child.childProfile?.longestStreak ?? 0}
+          </p>
           <p className="mt-1 text-xs text-slate-500">🏆 Personal best</p>
         </Card>
         <Card className="p-4">
@@ -319,12 +384,13 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
         {data.badges.map((badge) => (
           <Card
             key={badge.id}
-            className={`p-4 ${badge.earned ? "animate-floaty border-board-mint/40 bg-gradient-to-br from-emerald-50 to-white" : "opacity-70"}`}
+            className={`p-4 ${badge.earned ? "animate-floaty bg-gradient-to-br from-white to-slate-50" : "opacity-70"}`}
+            style={badge.earned ? { borderColor: activeTheme.borderColor } : undefined}
           >
             <p className="text-sm font-semibold">
-              {badge.earned ? "🏅" : "🔒"} {badge.label}
+              {badge.earned ? activeTheme.badgeEmoji : "🔒"} {badge.label}
             </p>
-            <p className={`text-xs ${badge.earned ? "text-board-mint" : "text-slate-500"}`}>
+            <p className={`text-xs ${badge.earned ? "text-[color:var(--child-theme-primary)]" : "text-slate-500"}`}>
               {badge.earned ? "Unlocked" : "Keep going"}
             </p>
           </Card>
@@ -333,7 +399,9 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
 
       <section className="mb-6 grid gap-4 lg:grid-cols-2">
         <Card>
-          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Assigned Tasks</h2>
+          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black text-[color:var(--child-theme-heading)]">
+            {activeTheme.taskEmoji} Assigned Tasks
+          </h2>
           <div className="space-y-3">
             {data.tasks.length === 0 ? (
               <p className="text-sm text-slate-500">No tasks assigned yet.</p>
@@ -397,7 +465,7 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
                         {timerRequired && !hasActiveTimer ? (
                           <Button
                             type="button"
-                            className="mt-3 h-12 w-full text-sm font-black"
+                            className="mt-3 h-12 w-full border-0 bg-[color:var(--child-theme-secondary)] text-sm font-black text-white hover:bg-[color:var(--child-theme-secondary-hover)]"
                             variant="ghost"
                             loading={saving}
                             disabled={!canStartTimer}
@@ -420,7 +488,7 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
 
                         <Button
                           type="button"
-                          className="mt-3 h-14 w-full text-base font-black"
+                          className="mt-3 h-14 w-full border-0 bg-[color:var(--child-theme-primary)] text-base font-black text-white hover:bg-[color:var(--child-theme-primary-hover)]"
                           loading={saving}
                           disabled={!canSubmitCompletion}
                           onClick={() =>
@@ -435,7 +503,7 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
                         >
                           <span className="flex items-center justify-center gap-2">
                             <CheckCircle2 className="h-6 w-6" />
-                            Mark As Done
+                            {activeTheme.taskEmoji} Mark As Done
                           </span>
                         </Button>
                       </>
@@ -448,7 +516,9 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
         </Card>
 
         <Card>
-          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Rewards Available</h2>
+          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black text-[color:var(--child-theme-heading)]">
+            {activeTheme.rewardEmoji} Rewards Available
+          </h2>
           <div className="space-y-3">
             {data.rewards.length === 0 ? (
               <p className="text-sm text-slate-500">No rewards yet. Ask your parent to add one.</p>
@@ -460,7 +530,10 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
                   </p>
                   <div className="mt-1 flex items-center gap-2">
                     <p className="text-xs text-slate-500">{reward.cost} pts</p>
-                    <span className="rounded-full bg-board-sky/20 px-2 py-0.5 text-[10px] font-semibold text-board-ink">
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-board-ink"
+                      style={{ backgroundColor: activeTheme.backgroundAccent }}
+                    >
                       Badge Reward
                     </span>
                   </div>
@@ -470,7 +543,11 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
                   </div>
                   <Button
                     type="button"
-                    className="mt-3"
+                    className={
+                      reward.affordable
+                        ? "mt-3 border-0 bg-[color:var(--child-theme-secondary)] text-white hover:bg-[color:var(--child-theme-secondary-hover)]"
+                        : "mt-3"
+                    }
                     variant={reward.affordable ? "secondary" : "ghost"}
                     disabled={!reward.affordable || saving}
                     loading={saving}
@@ -484,7 +561,7 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
                       }, "Reward request sent")
                     }
                   >
-                    {reward.affordable ? "Request Reward" : "Not enough points"}
+                    {reward.affordable ? `${activeTheme.rewardEmoji} Request Reward` : "Not enough points"}
                   </Button>
                 </div>
               ))
@@ -495,7 +572,9 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
 
       <section className="grid gap-4 lg:grid-cols-3">
         <Card>
-          <h2 className="mb-3 font-[var(--font-display)] text-xl font-black">Completed Tasks</h2>
+          <h2 className="mb-3 font-[var(--font-display)] text-xl font-black text-[color:var(--child-theme-heading)]">
+            {activeTheme.taskEmoji} Completed Tasks
+          </h2>
           <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
             {completedTasks.length === 0 ? (
               <p className="text-sm text-slate-500">No completed tasks yet.</p>
@@ -513,7 +592,9 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
         </Card>
 
         <Card>
-          <h2 className="mb-3 font-[var(--font-display)] text-xl font-black">Points History</h2>
+          <h2 className="mb-3 font-[var(--font-display)] text-xl font-black text-[color:var(--child-theme-heading)]">
+            {activeTheme.accentEmoji} Points History
+          </h2>
           <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
             {data.pointsHistory.length === 0 ? (
               <p className="text-sm text-slate-500">No points history yet.</p>
@@ -521,7 +602,13 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
               data.pointsHistory.map((entry) => (
                 <div key={entry.id} className="rounded-xl border border-slate-200 p-3">
                   <p className="text-sm font-medium">
-                    <span className={entry.amount > 0 ? "text-board-mint" : "text-board-coral"}>
+                    <span
+                      className={
+                        entry.amount > 0
+                          ? "text-[color:var(--child-theme-primary)]"
+                          : "text-[color:var(--child-theme-heading)]"
+                      }
+                    >
                       {entry.amount > 0 ? `+${entry.amount}` : entry.amount}
                     </span>{" "}
                     {entry.note}
@@ -536,7 +623,9 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
         </Card>
 
         <Card>
-          <h2 className="mb-3 font-[var(--font-display)] text-xl font-black">Activity Feed</h2>
+          <h2 className="mb-3 font-[var(--font-display)] text-xl font-black text-[color:var(--child-theme-heading)]">
+            {activeTheme.accentEmoji} Activity Feed
+          </h2>
           <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
             {data.activity.length === 0 ? (
               <p className="text-sm text-slate-500">No activity yet. Complete a task to start your timeline.</p>

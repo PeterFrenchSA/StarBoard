@@ -88,6 +88,7 @@ export function buildParentDashboardRoutes(
 export function buildChildDashboardRoutes(overview: unknown = childOverviewFixture): MockRoute[] {
   return [
     { method: "GET", path: "/api/child/overview", response: { data: overview } },
+    { method: "POST", path: "/api/child/theme", response: { data: { colorTheme: "fairies" } } },
     {
       method: "POST",
       path: /\/api\/child\/tasks\/[^/]+\/start-timer$/,

@@ -183,7 +183,7 @@ model ChildProfile {
   userId         String    @unique
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   avatarEmoji    String    @default("⭐")
-  colorTheme     String    @default("sun")
+  colorTheme     String    @default("fairies")
   currentStreak  Int       @default(0)
   longestStreak  Int       @default(0)
   lastStreakDate DateTime?
