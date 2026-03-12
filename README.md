@@ -228,6 +228,39 @@ E2E smoke test (app must already be running):
 npm run test:e2e
 ```
 
+## Storybook (UI Wireframes and Design Iteration)
+
+Run Storybook locally:
+
+```bash
+npm run storybook
+```
+
+Open:
+- [http://localhost:6006](http://localhost:6006)
+
+If port `6006` is busy:
+
+```bash
+STORYBOOK_PORT=7007 npm run storybook
+```
+
+Build static Storybook:
+
+```bash
+npm run build-storybook
+```
+
+Storybook includes:
+- UI primitives (`Button`, `Card`, `Progress`, `ProgressRing`, `Toast`)
+- realistic dashboard fixture stories (`Parent`, `Child`, `Provider`) with mocked API responses
+
+If you run inside Docker, use:
+
+```bash
+docker compose exec app npm run storybook
+```
+
 ## Voice Endpoint Usage
 
 Auth header:
