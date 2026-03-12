@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, PlayCircle, TimerReset } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -23,6 +23,13 @@ type ChildOverview = {
     description: string | null;
     points: number;
     requiresApproval: boolean;
+    deadlineAt: string | null;
+    deadlinePassed: boolean;
+    timerDurationMinutes: number | null;
+    timerActive: boolean;
+    timerExpired: boolean;
+    timerStartedAt: string | null;
+    timerEndsAt: string | null;
     availableToday: boolean;
     completedToday: boolean;
     completed: boolean;
@@ -83,6 +90,15 @@ function formatStatus(status: string): string {
     .join(" ");
 }
 
+function formatCountdown(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, totalSeconds);
+  const minutes = Math.floor(safeSeconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const seconds = (safeSeconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
 export function ChildDashboard({ childName }: ChildDashboardProps) {
   const [data, setData] = useState<ChildOverview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,6 +107,7 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
   const [success, setSuccess] = useState<string | null>(null);
   const [pointsDelta, setPointsDelta] = useState(0);
   const previousPointsRef = useRef<number | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   const loadOverview = useCallback(async (showLoader = false) => {
     if (showLoader) {
@@ -135,6 +152,11 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
     const timer = setTimeout(() => setPointsDelta(0), 1800);
     return () => clearTimeout(timer);
   }, [pointsDelta]);
+
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   async function handleAction(action: () => Promise<void>, successMessage?: string) {
     setSaving(true);
@@ -317,7 +339,19 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
               <p className="text-sm text-slate-500">No tasks assigned yet.</p>
             ) : (
               data.tasks.map((task) => {
-                const disabled = !task.availableToday || task.completed || saving;
+                const timerRequired = Boolean(task.timerDurationMinutes);
+                const timerEndsAt = task.timerEndsAt ? new Date(task.timerEndsAt).getTime() : null;
+                const timerRemainingSeconds = timerEndsAt ? Math.floor((timerEndsAt - nowTick) / 1000) : 0;
+                const hasActiveTimer = task.timerActive && timerRemainingSeconds > 0;
+                const timerIsExpired =
+                  task.timerExpired || Boolean(timerRequired && timerEndsAt && timerRemainingSeconds <= 0);
+                const canStartTimer =
+                  timerRequired && !task.completed && task.availableToday && !task.deadlinePassed && !saving;
+                const canSubmitCompletion =
+                  !task.completed &&
+                  !saving &&
+                  task.availableToday &&
+                  (!timerRequired || hasActiveTimer);
                 return (
                   <div key={task.id} className="rounded-2xl border border-slate-200 p-3">
                     <p className="font-semibold">{task.title}</p>
@@ -325,8 +359,30 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
                       {task.points} pts • {task.requiresApproval ? "Needs parent approval" : "Auto-approval"}
                     </p>
                     {task.description ? <p className="mt-1 text-sm text-slate-600">{task.description}</p> : null}
-                    {!task.availableToday ? (
+                    {task.deadlineAt ? (
+                      <p className="mt-1 text-xs font-semibold text-board-coral">
+                        Deadline: {new Date(task.deadlineAt).toLocaleString()}
+                      </p>
+                    ) : null}
+                    {timerRequired ? (
+                      <p className="mt-1 text-xs font-semibold text-board-ink">
+                        Timer: {task.timerDurationMinutes} min
+                        {hasActiveTimer ? ` • ${formatCountdown(timerRemainingSeconds)} remaining` : ""}
+                      </p>
+                    ) : null}
+                    {!task.availableToday && !task.deadlinePassed ? (
                       <p className="mt-2 text-xs font-semibold text-slate-500">Not scheduled for today</p>
+                    ) : null}
+                    {timerRequired && !task.completed && !hasActiveTimer && timerIsExpired ? (
+                      <p className="mt-2 text-xs font-semibold text-board-coral">
+                        Timer expired. Start a new timer before marking done.
+                      </p>
+                    ) : null}
+                    {timerRequired && !task.completed && !hasActiveTimer && !timerIsExpired ? (
+                      <p className="mt-2 text-xs font-semibold text-slate-500">Start timer to enable completion.</p>
+                    ) : null}
+                    {!task.completed && task.deadlinePassed ? (
+                      <p className="mt-2 text-xs font-semibold text-board-coral">Deadline passed for this task.</p>
                     ) : null}
                     {task.completed ? (
                       <p className="mt-2 text-xs font-semibold text-board-mint">{task.completedMessage ?? "Completed"}</p>
@@ -337,26 +393,52 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
                         Done
                       </div>
                     ) : (
-                      <Button
-                        type="button"
-                        className="mt-3 h-14 w-full text-base font-black"
-                        loading={saving}
-                        disabled={disabled}
-                        onClick={() =>
-                          void handleAction(async () => {
-                            await fetchJson(`/api/child/tasks/${task.id}/complete`, {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({})
-                            });
-                          }, task.requiresApproval ? "Task submitted for review" : "Task completed and points awarded")
-                        }
-                      >
-                        <span className="flex items-center justify-center gap-2">
-                          <CheckCircle2 className="h-6 w-6" />
-                          Mark As Done
-                        </span>
-                      </Button>
+                      <>
+                        {timerRequired && !hasActiveTimer ? (
+                          <Button
+                            type="button"
+                            className="mt-3 h-12 w-full text-sm font-black"
+                            variant="ghost"
+                            loading={saving}
+                            disabled={!canStartTimer}
+                            onClick={() =>
+                              void handleAction(async () => {
+                                await fetchJson(`/api/child/tasks/${task.id}/start-timer`, {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({})
+                                });
+                              }, "Timer started")
+                            }
+                          >
+                            <span className="flex items-center justify-center gap-2">
+                              {timerIsExpired ? <TimerReset className="h-5 w-5" /> : <PlayCircle className="h-5 w-5" />}
+                              {timerIsExpired ? "Restart Timer" : "Start Timer"}
+                            </span>
+                          </Button>
+                        ) : null}
+
+                        <Button
+                          type="button"
+                          className="mt-3 h-14 w-full text-base font-black"
+                          loading={saving}
+                          disabled={!canSubmitCompletion}
+                          onClick={() =>
+                            void handleAction(async () => {
+                              await fetchJson(`/api/child/tasks/${task.id}/complete`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({})
+                              });
+                            }, task.requiresApproval ? "Task submitted for review" : "Task completed and points awarded")
+                          }
+                        >
+                          <span className="flex items-center justify-center gap-2">
+                            <CheckCircle2 className="h-6 w-6" />
+                            Mark As Done
+                          </span>
+                        </Button>
+                      </>
                     )}
                   </div>
                 );

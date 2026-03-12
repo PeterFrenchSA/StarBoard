@@ -77,7 +77,35 @@ export async function POST(request: NextRequest) {
     return voiceError("Task is not scheduled for today", 409);
   }
 
+  if (task.deadlineAt && new Date() > task.deadlineAt) {
+    return voiceError("Task deadline has passed", 409);
+  }
+
+  if (task.timerDurationMinutes) {
+    return voiceError("Task requires an in-app timer. Use the child dashboard for this task.", 409);
+  }
+
   const occurrenceDate = getOccurrenceDate();
+
+  if (task.taskType === "ONE_OFF") {
+    const oneOffSubmitted = await db.taskCompletion.findFirst({
+      where: {
+        taskId: task.id,
+        childId: child.id,
+        status: {
+          in: [
+            TaskCompletionStatus.PENDING_APPROVAL,
+            TaskCompletionStatus.APPROVED,
+            TaskCompletionStatus.AUTO_APPROVED
+          ]
+        }
+      }
+    });
+
+    if (oneOffSubmitted) {
+      return voiceError("One-off task already submitted", 409);
+    }
+  }
 
   const existingToday = await db.taskCompletion.findFirst({
     where: {

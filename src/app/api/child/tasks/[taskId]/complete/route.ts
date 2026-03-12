@@ -47,6 +47,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return Response.json({ error: "Task is not scheduled for today" }, { status: 409 });
   }
 
+  const now = new Date();
+
+  if (task.deadlineAt && now > task.deadlineAt) {
+    return Response.json({ error: "Task deadline has passed" }, { status: 409 });
+  }
+
   const occurrenceDate = getOccurrenceDate();
 
   if (task.taskType === "ONE_OFF") {
@@ -69,6 +75,34 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
   }
 
+  let timerSessionId: string | null = null;
+
+  if (task.timerDurationMinutes) {
+    const timerSession = await db.taskTimerSession.findUnique({
+      where: {
+        taskId_childId_occurrenceDate: {
+          taskId: task.id,
+          childId: auth.session!.userId,
+          occurrenceDate
+        }
+      }
+    });
+
+    if (!timerSession) {
+      return Response.json({ error: "Start the task timer before completing this task" }, { status: 409 });
+    }
+
+    if (timerSession.completedAt) {
+      return Response.json({ error: "Task timer already used" }, { status: 409 });
+    }
+
+    if (timerSession.expiresAt <= now) {
+      return Response.json({ error: "Task timer expired. Start a new timer." }, { status: 409 });
+    }
+
+    timerSessionId = timerSession.id;
+  }
+
   const existingToday = await db.taskCompletion.findFirst({
     where: {
       taskId: task.id,
@@ -83,17 +117,28 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   const autoApprove = !task.requiresApproval;
 
-  const completion = await db.taskCompletion.create({
-    data: {
-      taskId: task.id,
-      childId: auth.session!.userId,
-      occurrenceDate,
-      status: autoApprove ? TaskCompletionStatus.AUTO_APPROVED : TaskCompletionStatus.PENDING_APPROVAL,
-      pointsAwarded: autoApprove ? task.points : 0,
-      reviewNote: payload.data.note,
-      reviewedAt: autoApprove ? new Date() : null,
-      reviewedById: autoApprove ? auth.session!.userId : null
+  const completion = await db.$transaction(async (tx) => {
+    const createdCompletion = await tx.taskCompletion.create({
+      data: {
+        taskId: task.id,
+        childId: auth.session!.userId,
+        occurrenceDate,
+        status: autoApprove ? TaskCompletionStatus.AUTO_APPROVED : TaskCompletionStatus.PENDING_APPROVAL,
+        pointsAwarded: autoApprove ? task.points : 0,
+        reviewNote: payload.data.note,
+        reviewedAt: autoApprove ? new Date() : null,
+        reviewedById: autoApprove ? auth.session!.userId : null
+      }
+    });
+
+    if (timerSessionId) {
+      await tx.taskTimerSession.update({
+        where: { id: timerSessionId },
+        data: { completedAt: new Date() }
+      });
     }
+
+    return createdCompletion;
   });
 
   await db.activityLog.create({
@@ -105,7 +150,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       message: `${auth.session!.displayName} completed task "${task.title}"${autoApprove ? " (auto-approved)" : ""}`,
       metadata: {
         completionId: completion.id,
-        note: payload.data.note
+        note: payload.data.note,
+        usedTimer: Boolean(task.timerDurationMinutes),
+        timerSessionId
       }
     }
   });

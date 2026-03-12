@@ -11,6 +11,16 @@ export function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  function getRoleHomePath(
+    role: "PARENT" | "CHILD" | "SUPER_ADMIN"
+  ): "/parent" | "/child" | "/provider" {
+    if (role === "SUPER_ADMIN") {
+      return "/provider";
+    }
+
+    return role === "PARENT" ? "/parent" : "/child";
+  }
+
   return (
     <Card className="mx-auto w-full max-w-md p-7">
       <h1 className="mb-1 font-[var(--font-display)] text-3xl font-black">Welcome Back</h1>
@@ -42,8 +52,8 @@ export function LoginForm() {
             return;
           }
 
-          const role = result.data?.role;
-          router.replace(role === "PARENT" ? "/parent" : "/child");
+          const role = result.data?.role as "PARENT" | "CHILD" | "SUPER_ADMIN";
+          router.replace(getRoleHomePath(role) as never);
           router.refresh();
         }}
       >

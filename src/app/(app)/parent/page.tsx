@@ -1,7 +1,18 @@
 import { ParentDashboard } from "@/components/dashboard/parent-dashboard";
-import { requireServerSession } from "@/lib/auth/session";
+import { ParentSetupWizard } from "@/components/dashboard/parent-setup-wizard";
+import { getParentAccessState } from "@/lib/parent-access";
 
 export default async function ParentPage() {
-  const session = await requireServerSession(["PARENT"]);
-  return <ParentDashboard parentName={session.displayName} />;
+  const { session, parent } = await getParentAccessState();
+
+  if (!parent?.onboardingCompletedAt) {
+    return (
+      <ParentSetupWizard
+        parentName={session.displayName}
+        initialFamilyName={parent?.family.name ?? "My Family"}
+      />
+    );
+  }
+
+  return <ParentDashboard parentName={session.displayName} mode="main" />;
 }

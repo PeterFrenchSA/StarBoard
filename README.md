@@ -16,13 +16,36 @@ StarBoard is a self-hostable family star chart and rewards app built with Next.j
 
 - Parent creates family workspace and manages children
 - Child and parent separate logins with role enforcement
+- Multi-parent family support (owner parent can add more parents)
+- Stripe-ready subscription billing model:
+  - `$5/month` parent plan with 2 included children
+  - `$2/month` per additional child
+  - annual option at `10x` monthly equivalent
+- Provider admin console (`/provider`) for global subscription + support operations
 - Parent control center:
+  - first-time setup wizard (family personalization, children, starter tasks, starter rewards)
   - child summaries and activity
-  - recurring/one-off tasks
+  - recurring/one-off tasks with optional deadline and timer
+  - recurring task assignment to multiple children at once
   - pending task approvals
   - manual points adjustments
   - reward management
   - reward approval/rejection
+  - per-parent voice token management
+  - in-app support ticket creation and replies
+  - feature request submission from the same ticketing flow
+  - billing actions (checkout + portal)
+
+### Parent Navigation Layout
+
+The parent experience is split into focused sub-menus:
+
+- `/parent` main dashboard (children, tasks, rewards, activity)
+- `/parent/approvals` pending task/reward reviews
+- `/parent/billing` subscription and Stripe actions
+- `/parent/integrations` voice token management
+- `/parent/support` support + feature request ticketing
+- `/parent/admin` parent/child account administration
 - Child dashboard:
   - points, streaks, badges
   - assigned tasks and completion flow
@@ -120,9 +143,12 @@ docker compose exec app npm run prisma:seed
 From default `.env.example`:
 
 - Child password for all seeded children: `StarKid123!`
+- Super admin:
+  - `admin@starboard.local` / `AdminPass123!`
 
 Dataset 1 (`Skywalkers - Task Allocation`):
 - Parent: `parent@starboard.local` / `ChangeMe123!`
+- Co-parent: `coparent@starboard.local` / `ChangeMe123!`
 - Children: `leia@starboard.local`, `william@starboard.local`
 - Voice token: `starboard-voice-dev-token`
 
@@ -147,6 +173,9 @@ See `.env.example`:
 - `APP_URL`
 - `AUTH_SECRET`
 - `VOICE_TOKEN_SALT`
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_PRICE_CURRENCY`
 - `NODE_ENV`
 - `PORT`
 - `POSTGRES_DB`
@@ -155,6 +184,8 @@ See `.env.example`:
 - `SEED_PARENT_EMAIL`
 - `SEED_PARENT_PASSWORD`
 - `SEED_VOICE_TOKEN`
+- `SUPER_ADMIN_EMAIL`
+- `SUPER_ADMIN_PASSWORD`
 
 ## Database and Prisma
 
@@ -260,6 +291,49 @@ Error example:
 ```
 
 Voice endpoints are family-scoped, token-authenticated, validated with Zod, and rate-limited.
+
+## Billing and Platform APIs
+
+- Parent billing:
+  - `POST /api/billing/checkout-session` (monthly/annual Stripe checkout)
+  - `POST /api/billing/portal-session` (Stripe customer portal)
+- Stripe webhook:
+  - `POST /api/stripe/webhook`
+- Parent support:
+  - `GET /api/parent/support/tickets`
+  - `POST /api/parent/support/tickets`
+  - `POST /api/parent/support/tickets/:ticketId/messages`
+- Parent voice token management:
+  - `GET /api/parent/voice/tokens`
+  - `POST /api/parent/voice/tokens`
+  - `PATCH /api/parent/voice/tokens/:tokenId`
+- Provider management:
+  - `GET /api/provider/overview`
+  - `PATCH /api/provider/tickets/:ticketId`
+  - `POST /api/provider/tickets/:ticketId/messages`
+- `GET /api/provider/feature-requests/export` (CSV export)
+
+Note: seeded demo families include placeholder Stripe IDs for UI demos. In local test mode, start a real checkout first to link a valid Stripe customer before opening the billing portal.
+
+## Multi-Tenant Notes
+
+- A family can now have multiple parent logins.
+- Family owner can create additional parent accounts from the parent dashboard admin section.
+- Provider admin users (`SUPER_ADMIN`) log in normally and are routed to `/provider`.
+- Family data remains isolated by `familyId`, while provider APIs are restricted to `SUPER_ADMIN`.
+
+## Scaling Guidance
+
+- Current default topology: single VPS with Docker Compose (`app + postgres`).
+- Near-term scale path:
+  - put Nginx or Caddy in front of app container
+  - enable Cloudflare DNS/CDN for static asset and edge caching
+  - move PostgreSQL to a dedicated node before horizontal app scaling
+- Multi-region progression:
+  - keep write-primary PostgreSQL in one region first
+  - add read replicas + region-local app workers for read-heavy traffic
+  - move asynchronous tasks (support notifications, webhook fanout) to a queue worker service
+- Keep webhook and session secrets synchronized across nodes during scaling.
 
 ## Siri Shortcuts / Google Assistant Readiness
 

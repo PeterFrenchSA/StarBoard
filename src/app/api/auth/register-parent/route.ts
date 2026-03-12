@@ -54,7 +54,8 @@ export async function POST(request: NextRequest) {
         role: Role.PARENT,
         email: email.toLowerCase(),
         passwordHash,
-        displayName: parentName
+        displayName: parentName,
+        isFamilyOwner: true
       }
     });
 

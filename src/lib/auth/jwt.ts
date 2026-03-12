@@ -36,7 +36,7 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
     if (
       typeof payload.userId !== "string" ||
       typeof payload.familyId !== "string" ||
-      (payload.role !== "PARENT" && payload.role !== "CHILD") ||
+      (payload.role !== "PARENT" && payload.role !== "CHILD" && payload.role !== "SUPER_ADMIN") ||
       typeof payload.email !== "string" ||
       typeof payload.displayName !== "string"
     ) {

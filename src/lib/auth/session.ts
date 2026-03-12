@@ -8,6 +8,14 @@ import type { SessionPayload, SessionRole } from "@/lib/auth/types";
 
 export { createSessionToken, verifySessionToken };
 
+function getDefaultRolePath(role: SessionRole): "/parent" | "/child" | "/provider" {
+  if (role === "SUPER_ADMIN") {
+    return "/provider";
+  }
+
+  return role === "PARENT" ? "/parent" : "/child";
+}
+
 export function applySessionCookie(response: NextResponse, token: string): void {
   response.cookies.set({
     name: SESSION_COOKIE,
@@ -72,7 +80,7 @@ export async function requireServerSession(roles?: SessionRole[]): Promise<Sessi
   }
 
   if (roles && !roles.includes(session.role)) {
-    redirect(session.role === "PARENT" ? "/parent" : "/child");
+    redirect(getDefaultRolePath(session.role) as never);
   }
 
   return session;

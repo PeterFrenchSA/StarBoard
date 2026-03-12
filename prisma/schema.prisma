@@ -11,6 +11,7 @@ datasource db {
 enum Role {
   PARENT
   CHILD
+  SUPER_ADMIN
 }
 
 enum TaskType {
@@ -61,22 +62,82 @@ enum ActivityType {
   REWARD_REJECTED
   VOICE_POINTS_ADDED
   VOICE_TASK_COMPLETED
+  PARENT_ADDED
+  VOICE_TOKEN_CREATED
+  VOICE_TOKEN_REVOKED
+  SUPPORT_TICKET_CREATED
+  SUPPORT_TICKET_UPDATED
+  SUPPORT_MESSAGE_CREATED
+  BILLING_CHECKOUT_STARTED
+  BILLING_UPDATED
+  BILLING_PORTAL_OPENED
+}
+
+enum BillingInterval {
+  MONTHLY
+  ANNUAL
+}
+
+enum SubscriptionStatus {
+  INACTIVE
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  UNPAID
+}
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_ON_PARENT
+  RESOLVED
+  CLOSED
+}
+
+enum SupportTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum SupportTicketType {
+  SUPPORT
+  FEATURE_REQUEST
 }
 
 model Family {
-  id                String             @id @default(cuid())
-  name              String
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  users             User[]
-  tasks             Task[]
-  rewards           Reward[]
-  pointTransactions PointTransaction[]
-  activityLogs      ActivityLog[]
-  voiceApiTokens    VoiceApiToken[]
-  rewardRedemptions RewardRedemption[]
+  id                        String             @id @default(cuid())
+  name                      String
+  themePreset               String             @default("sun")
+  billingInterval           BillingInterval    @default(MONTHLY)
+  subscriptionStatus        SubscriptionStatus @default(INACTIVE)
+  billingEmail              String?
+  stripeCustomerId          String?            @unique
+  stripeSubscriptionId      String?            @unique
+  stripePriceId             String?
+  subscriptionCurrentPeriodEnd DateTime?
+  subscriptionCancelAtPeriodEnd Boolean        @default(false)
+  billingUpdatedAt          DateTime?
+  planBaseAmountCents       Int                @default(500)
+  includedChildren          Int                @default(2)
+  additionalChildAmountCents Int               @default(200)
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
+  users                     User[]
+  tasks                     Task[]
+  rewards                   Reward[]
+  pointTransactions         PointTransaction[]
+  activityLogs              ActivityLog[]
+  voiceApiTokens            VoiceApiToken[]
+  rewardRedemptions         RewardRedemption[]
+  supportTickets            SupportTicket[]
+  billingEvents             BillingEvent[]
 
   @@index([name])
+  @@index([subscriptionStatus])
 }
 
 model User {
@@ -88,6 +149,9 @@ model User {
   passwordHash        String
   displayName         String
   isActive            Boolean            @default(true)
+  isFamilyOwner       Boolean            @default(false)
+  isSupportAgent      Boolean            @default(false)
+  onboardingCompletedAt DateTime?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   childProfile        ChildProfile?
@@ -95,6 +159,7 @@ model User {
   assignedTasks       Task[]             @relation("TaskAssignee")
   taskCompletions     TaskCompletion[]   @relation("CompletionChild")
   reviewedCompletions TaskCompletion[]   @relation("CompletionReviewer")
+  taskTimerSessions   TaskTimerSession[] @relation("TaskTimerChild")
   createdRewards      Reward[]           @relation("RewardCreator")
   rewardRequests      RewardRedemption[] @relation("RewardChild")
   reviewedRedemptions RewardRedemption[] @relation("RewardReviewer")
@@ -103,9 +168,14 @@ model User {
   activityAsActor     ActivityLog[]      @relation("ActivityActor")
   activityAsChild     ActivityLog[]      @relation("ActivityChild")
   createdVoiceTokens  VoiceApiToken[]    @relation("VoiceTokenCreator")
+  ownedVoiceTokens    VoiceApiToken[]    @relation("VoiceTokenOwner")
+  createdSupportTickets SupportTicket[]  @relation("SupportTicketCreator")
+  assignedSupportTickets SupportTicket[] @relation("SupportTicketAssignee")
+  supportMessages     SupportTicketMessage[] @relation("SupportTicketMessageAuthor")
 
   @@index([familyId, role])
   @@index([familyId, displayName])
+  @@index([role, isSupportAgent])
 }
 
 model ChildProfile {
@@ -122,26 +192,47 @@ model ChildProfile {
 }
 
 model Task {
-  id               String           @id @default(cuid())
-  familyId         String
-  family           Family           @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  createdById      String
-  createdBy        User             @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Cascade)
-  assignedChildId  String
-  assignedChild    User             @relation("TaskAssignee", fields: [assignedChildId], references: [id], onDelete: Cascade)
-  title            String
-  description      String?
-  points           Int
-  taskType         TaskType         @default(ONE_OFF)
-  recurrenceType   RecurrenceType   @default(NONE)
-  weekdays         Int[]            @default([])
-  requiresApproval Boolean          @default(true)
-  isActive         Boolean          @default(true)
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-  completions      TaskCompletion[]
+  id                   String         @id @default(cuid())
+  familyId             String
+  family               Family         @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  createdById          String
+  createdBy            User           @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  assignedChildId      String
+  assignedChild        User           @relation("TaskAssignee", fields: [assignedChildId], references: [id], onDelete: Cascade)
+  title                String
+  description          String?
+  points               Int
+  taskType             TaskType       @default(ONE_OFF)
+  recurrenceType       RecurrenceType @default(NONE)
+  weekdays             Int[]          @default([])
+  deadlineAt           DateTime?
+  timerDurationMinutes Int?
+  requiresApproval     Boolean        @default(true)
+  isActive             Boolean        @default(true)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  completions          TaskCompletion[]
+  timerSessions        TaskTimerSession[]
 
   @@index([familyId, assignedChildId, isActive])
+}
+
+model TaskTimerSession {
+  id             String   @id @default(cuid())
+  taskId         String
+  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  childId        String
+  child          User     @relation("TaskTimerChild", fields: [childId], references: [id], onDelete: Cascade)
+  occurrenceDate DateTime
+  startedAt      DateTime @default(now())
+  expiresAt      DateTime
+  completedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([taskId, childId, occurrenceDate])
+  @@index([childId, expiresAt])
+  @@index([taskId, occurrenceDate])
 }
 
 model TaskCompletion {
@@ -248,12 +339,69 @@ model VoiceApiToken {
   family      Family    @relation(fields: [familyId], references: [id], onDelete: Cascade)
   label       String
   tokenHash   String    @unique
+  tokenPreview String?
   isActive    Boolean   @default(true)
   createdById String?
   createdBy   User?     @relation("VoiceTokenCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  parentId    String?
+  parent      User?     @relation("VoiceTokenOwner", fields: [parentId], references: [id], onDelete: SetNull)
   lastUsedAt  DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@index([familyId, isActive])
+  @@index([familyId, parentId, isActive])
+}
+
+model SupportTicket {
+  id          String              @id @default(cuid())
+  familyId    String
+  family      Family              @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User                @relation("SupportTicketCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  assignedToId String?
+  assignedTo  User?               @relation("SupportTicketAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  subject     String
+  description String
+  type        SupportTicketType    @default(SUPPORT)
+  status      SupportTicketStatus @default(OPEN)
+  priority    SupportTicketPriority @default(NORMAL)
+  category    String?
+  resolvedAt  DateTime?
+  lastMessageAt DateTime          @default(now())
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  messages    SupportTicketMessage[]
+
+  @@index([familyId, type, status, updatedAt])
+  @@index([createdById, createdAt])
+  @@index([assignedToId, status])
+}
+
+model SupportTicketMessage {
+  id         String        @id @default(cuid())
+  ticketId   String
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User          @relation("SupportTicketMessageAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  body       String
+  isInternal Boolean       @default(false)
+  createdAt  DateTime      @default(now())
+
+  @@index([ticketId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model BillingEvent {
+  id           String   @id @default(cuid())
+  familyId     String
+  family       Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  stripeEventId String  @unique
+  eventType    String
+  payload      Json?
+  processedAt  DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@index([familyId, createdAt])
+  @@index([eventType, createdAt])
 }

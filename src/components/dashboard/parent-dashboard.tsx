@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AvatarPicker } from "@/components/dashboard/avatar-picker";
+import { RewardEmojiPicker } from "@/components/dashboard/reward-emoji-picker";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -10,8 +11,26 @@ import { Toast } from "@/components/ui/toast";
 
 type TaskKind = "ONE_OFF" | "RECURRING";
 type RecurrenceKind = "NONE" | "DAILY" | "WEEKLY" | "WEEKDAYS";
+type ParentViewMode = "main" | "approvals" | "billing" | "integrations" | "support" | "admin";
+type VoiceTokenRow = {
+  id: string;
+  label: string;
+  tokenPreview: string | null;
+  isActive: boolean;
+  lastUsedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  token?: string;
+};
 
 type ParentOverview = {
+  parents: Array<{
+    id: string;
+    displayName: string;
+    email: string;
+    isFamilyOwner: boolean;
+    createdAt: string;
+  }>;
   children: Array<{
     id: string;
     displayName: string;
@@ -43,6 +62,8 @@ type ParentOverview = {
     taskType: TaskKind;
     recurrenceType: RecurrenceKind;
     weekdays: number[];
+    deadlineAt: string | null;
+    timerDurationMinutes: number | null;
     requiresApproval: boolean;
     isActive: boolean;
     assignedChild: { id: string; displayName: string; childProfile: { avatarEmoji: string } | null };
@@ -55,6 +76,51 @@ type ParentOverview = {
     iconEmoji: string;
     isActive: boolean;
   }>;
+  supportTickets: Array<{
+    id: string;
+    subject: string;
+    description: string;
+    type: "SUPPORT" | "FEATURE_REQUEST";
+    status: "OPEN" | "IN_PROGRESS" | "WAITING_ON_PARENT" | "RESOLVED" | "CLOSED";
+    priority: "LOW" | "NORMAL" | "HIGH" | "URGENT";
+    category: string | null;
+    createdAt: string;
+    updatedAt: string;
+    resolvedAt: string | null;
+    createdBy: {
+      id: string;
+      displayName: string;
+      role: string;
+    };
+    assignedTo: {
+      id: string;
+      displayName: string;
+      role: string;
+    } | null;
+    messages: Array<{
+      id: string;
+      body: string;
+      createdAt: string;
+      author: {
+        id: string;
+        displayName: string;
+        role: string;
+      };
+    }>;
+  }>;
+  billing: {
+    interval: "MONTHLY" | "ANNUAL";
+    status: string;
+    billingEmail: string | null;
+    stripeCustomerLinked: boolean;
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd: boolean;
+    childCount: number;
+    includedChildren: number;
+    additionalChildren: number;
+    monthlyAmountCents: number;
+    annualAmountCents: number;
+  };
   activity: Array<{
     id: string;
     type: string;
@@ -68,6 +134,7 @@ type ParentOverview = {
     activeTasksCount: number;
     totalPositivePointsThisMonth: number;
     pendingApprovalsCount: number;
+    openSupportTicketsCount: number;
   };
 };
 
@@ -88,6 +155,28 @@ function formatEventType(type: string): string {
     .join(" ");
 }
 
+function formatStatusLabel(value: string): string {
+  return value.toLowerCase().replace(/_/g, " ");
+}
+
+function formatCents(cents: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD"
+  }).format(cents / 100);
+}
+
+function toDateTimeLocalValue(dateValue: string | null | undefined): string {
+  if (!dateValue) {
+    return "";
+  }
+
+  const date = new Date(dateValue);
+  const pad = (value: number) => value.toString().padStart(2, "0");
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     credentials: "include",
@@ -105,10 +194,13 @@ async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> 
 
 interface ParentDashboardProps {
   parentName: string;
+  mode?: ParentViewMode;
 }
 
-export function ParentDashboard({ parentName }: ParentDashboardProps) {
+export function ParentDashboard({ parentName, mode = "main" }: ParentDashboardProps) {
   const [data, setData] = useState<ParentOverview | null>(null);
+  const [voiceTokens, setVoiceTokens] = useState<VoiceTokenRow[]>([]);
+  const [revealedVoiceToken, setRevealedVoiceToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -127,6 +219,8 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
   const [editWeekdays, setEditWeekdays] = useState<number[]>([1, 2, 3, 4, 5]);
 
   const [selectedRewardId, setSelectedRewardId] = useState<string>("");
+  const [createRewardEmoji, setCreateRewardEmoji] = useState("🎁");
+  const [editRewardEmoji, setEditRewardEmoji] = useState("🎁");
 
   const loadOverview = useCallback(async (showLoader = false) => {
     if (showLoader) {
@@ -135,7 +229,10 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
     setError(null);
 
     try {
-      const overview = await fetchJson<ParentOverview>("/api/parent/overview");
+      const [overview, tokens] = await Promise.all([
+        fetchJson<ParentOverview>("/api/parent/overview"),
+        fetchJson<VoiceTokenRow[]>("/api/parent/voice/tokens")
+      ]);
       const deltas = overview.children.reduce<Record<string, number>>((acc, child) => {
         const previous = previousPointsRef.current[child.id];
         if (typeof previous === "number" && previous !== child.points) {
@@ -149,6 +246,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
       }, {});
       setPointDeltas(deltas);
       setData(overview);
+      setVoiceTokens(tokens);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load dashboard");
     } finally {
@@ -170,6 +268,15 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
     const timer = setTimeout(() => setSuccess(null), 2800);
     return () => clearTimeout(timer);
   }, [success]);
+
+  useEffect(() => {
+    if (!revealedVoiceToken) {
+      return;
+    }
+
+    const timer = setTimeout(() => setRevealedVoiceToken(null), 12000);
+    return () => clearTimeout(timer);
+  }, [revealedVoiceToken]);
 
   useEffect(() => {
     if (Object.keys(pointDeltas).length === 0) {
@@ -215,6 +322,13 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
     setEditRecurrenceType(selectedTask.recurrenceType);
     setEditWeekdays(selectedTask.weekdays);
   }, [selectedTask]);
+
+  useEffect(() => {
+    if (!selectedReward) {
+      return;
+    }
+    setEditRewardEmoji(selectedReward.iconEmoji || "🎁");
+  }, [selectedReward]);
 
   const taskSummary = useMemo(() => {
     const tasks = data?.tasks ?? [];
@@ -265,6 +379,13 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
     }
   }
 
+  function scrollToSection(sectionId: string) {
+    const element = document.getElementById(sectionId);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
   if (loading) {
     return (
       <main className="mx-auto max-w-7xl px-4 py-6">
@@ -290,11 +411,30 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
     );
   }
 
+  const showMainOverview = mode === "main";
+  const showTaskTools = mode === "main";
+  const showRewardTools = mode === "main";
+  const showApprovals = mode === "approvals";
+  const showBillingTools = mode === "billing";
+  const showVoiceTools = mode === "integrations";
+  const showSupportTools = mode === "support";
+  const showAdminTools = mode === "admin";
+  const showActivityPanel = mode === "main";
+
+  const modeSubtitle: Record<ParentViewMode, string> = {
+    main: `Welcome back, ${parentName}. Manage children, tasks, rewards, and daily activity.`,
+    approvals: `Welcome back, ${parentName}. Review pending task completions and reward redemptions.`,
+    billing: `Welcome back, ${parentName}. Manage your subscription and billing profile.`,
+    integrations: `Welcome back, ${parentName}. Manage voice assistant tokens and integrations.`,
+    support: `Welcome back, ${parentName}. Create and track support tickets and feature requests.`,
+    admin: `Welcome back, ${parentName}. Manage parent and child account access.`
+  };
+
   return (
     <main className="mx-auto max-w-7xl px-4 py-6">
       <DashboardHeader
         title="Parent Control Center"
-        subtitle={`Welcome back, ${parentName}. Manage tasks, points, rewards, and approvals.`}
+        subtitle={modeSubtitle[mode]}
       />
 
       <div className="pointer-events-none fixed right-4 top-4 z-50 flex w-full max-w-sm justify-end">
@@ -305,7 +445,26 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
         <Toast message={error} variant="error" className="mb-4" />
       ) : null}
 
-      <section className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+      {showMainOverview ? (
+        <section className="mb-6">
+          <Card className="p-3">
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="ghost" className="h-9" onClick={() => scrollToSection("task-tools")}>
+                Tasks
+              </Button>
+              <Button type="button" variant="ghost" className="h-9" onClick={() => scrollToSection("reward-tools")}>
+                Rewards
+              </Button>
+              <Button type="button" variant="ghost" className="h-9" onClick={() => window.location.assign("/parent/approvals")}>
+                Approvals
+              </Button>
+            </div>
+          </Card>
+        </section>
+      ) : null}
+
+      {showMainOverview ? (
+        <section className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-5">
         <Card className="p-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">Children</p>
           <p className="text-2xl font-black">{data.stats.childrenCount}</p>
@@ -320,11 +479,29 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
         </Card>
         <Card className="p-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">Pending Reviews</p>
-          <p className="text-2xl font-black">{data.stats.pendingApprovalsCount}</p>
+          <button
+            type="button"
+            className="text-left text-2xl font-black text-board-coral underline-offset-4 hover:underline"
+            onClick={() => window.location.assign("/parent/approvals")}
+          >
+            {data.stats.pendingApprovalsCount}
+          </button>
         </Card>
-      </section>
+        <Card className="p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Open Support</p>
+          <button
+            type="button"
+            className="text-left text-2xl font-black text-board-sky underline-offset-4 hover:underline"
+            onClick={() => window.location.assign("/parent/support")}
+          >
+            {data.stats.openSupportTicketsCount}
+          </button>
+        </Card>
+        </section>
+      ) : null}
 
-      <section className="mb-6 grid gap-4 md:grid-cols-2">
+      {showMainOverview ? (
+        <section className="mb-6 grid gap-4 md:grid-cols-2">
         <Card className="p-4">
           <h2 className="mb-2 font-[var(--font-display)] text-xl font-black">Task Summary</h2>
           <div className="grid grid-cols-2 gap-2 text-xs">
@@ -340,10 +517,14 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
               <p className="font-black text-lg text-board-sun">{taskSummary.oneOff}</p>
               <p>One-off</p>
             </div>
-            <div className="rounded-xl bg-slate-50 p-3">
+            <button
+              type="button"
+              className="rounded-xl bg-slate-50 p-3 text-left transition hover:bg-slate-100"
+              onClick={() => window.location.assign("/parent/approvals")}
+            >
               <p className="font-black text-lg text-board-coral">{taskSummary.requiresApproval}</p>
               <p>Need Approval</p>
-            </div>
+            </button>
           </div>
         </Card>
 
@@ -368,9 +549,11 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
             </div>
           </div>
         </Card>
-      </section>
+        </section>
+      ) : null}
 
-      <section className="mb-6 grid gap-4 md:grid-cols-3">
+      {showMainOverview ? (
+        <section className="mb-6 grid gap-4 md:grid-cols-3">
         {data.children.length === 0 ? (
           <Card className="md:col-span-3">
             <p className="text-sm text-slate-500">No children yet. Add the first child profile to start assigning tasks.</p>
@@ -405,52 +588,23 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                   <p className="font-black text-base text-board-sun">{child.childProfile?.currentStreak ?? 0}</p>
                   <p>Streak</p>
                 </div>
-                <div className="rounded-xl bg-slate-50 p-2">
+              <button
+                  type="button"
+                  className="rounded-xl bg-slate-50 p-2 transition hover:bg-slate-100"
+                  onClick={() => window.location.assign("/parent/approvals")}
+                >
                   <p className="font-black text-base text-board-coral">{child.pendingTasks + child.pendingRewards}</p>
                   <p>Pending</p>
-                </div>
+                </button>
               </div>
             </Card>
           ))
         )}
-      </section>
+        </section>
+      ) : null}
 
-      <section className="mb-6 grid gap-4 lg:grid-cols-2">
-        <Card>
-          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Add Child</h2>
-          <form
-            className="grid gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const form = event.currentTarget;
-              const formData = new FormData(event.currentTarget);
-              void handleAction(async () => {
-                await fetchJson("/api/parent/children", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    childName: formData.get("childName"),
-                    email: formData.get("email"),
-                    password: formData.get("password"),
-                    avatarEmoji: formData.get("avatarEmoji") || selectedAvatar
-                  })
-                });
-                form.reset();
-                setSelectedAvatar("⭐");
-              }, "Child account created");
-            }}
-          >
-            <Input name="childName" label="Child name" required />
-            <Input name="email" label="Child email" type="email" required />
-            <Input name="password" label="Child password" type="password" required />
-            <input type="hidden" name="avatarEmoji" value={selectedAvatar} />
-            <AvatarPicker value={selectedAvatar} onChange={setSelectedAvatar} />
-            <Button type="submit" loading={saving}>
-              Create Child Account
-            </Button>
-          </form>
-        </Card>
-
+      {showMainOverview ? (
+        <section className="mb-6 grid gap-4">
         <Card>
           <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Manual Points</h2>
           <form
@@ -498,9 +652,11 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
             </Button>
           </form>
         </Card>
-      </section>
+        </section>
+      ) : null}
 
-      <section className="mb-6 grid gap-4 lg:grid-cols-2">
+      {showTaskTools ? (
+        <section id="task-tools" className="mb-6 grid gap-4 lg:grid-cols-2">
         <Card>
           <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Create Task</h2>
           <form
@@ -510,19 +666,32 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
               const form = event.currentTarget;
               const formData = new FormData(event.currentTarget);
               const normalizedRecurrence = taskType === "ONE_OFF" ? "NONE" : recurrenceType;
+              const selectedChildIds = formData.getAll("assignedChildIds").map((value) => String(value));
+              const oneOffChildId = formData.get("assignedChildId");
+              const deadlineValue = formData.get("deadlineAt");
+              const timerDurationValue = formData.get("timerDurationMinutes");
 
               void handleAction(async () => {
-                await fetchJson("/api/parent/tasks", {
+                const result = await fetchJson<{ createdCount?: number }>("/api/parent/tasks", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
-                    assignedChildId: formData.get("assignedChildId"),
+                    assignedChildId: oneOffChildId || undefined,
+                    assignedChildIds: selectedChildIds.length > 0 ? selectedChildIds : undefined,
                     title: formData.get("title"),
                     description: formData.get("description") || undefined,
                     points: Number(formData.get("points")),
                     taskType,
                     recurrenceType: normalizedRecurrence,
                     weekdays: normalizedRecurrence === "WEEKDAYS" ? weekdays : [],
+                    deadlineAt:
+                      typeof deadlineValue === "string" && deadlineValue.length > 0
+                        ? new Date(deadlineValue).toISOString()
+                        : undefined,
+                    timerDurationMinutes:
+                      typeof timerDurationValue === "string" && timerDurationValue.length > 0
+                        ? Number(timerDurationValue)
+                        : undefined,
                     requiresApproval: formData.get("requiresApproval") === "on"
                   })
                 });
@@ -530,31 +699,61 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                 setTaskType("RECURRING");
                 setRecurrenceType("DAILY");
                 setWeekdays([1, 2, 3, 4, 5]);
-              }, "Task created");
+                if (result?.createdCount && result.createdCount > 1) {
+                  setSuccess(`Task created for ${result.createdCount} children`);
+                } else {
+                  setSuccess("Task created");
+                }
+              });
             }}
           >
-            <label className="flex flex-col gap-1 text-sm font-medium">
-              Assign child
-              <select
-                name="assignedChildId"
-                className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm"
-                required
-                defaultValue=""
-              >
-                <option disabled value="">
-                  Select child
-                </option>
-                {childOptions.map((child) => (
-                  <option key={child.id} value={child.id}>
-                    {child.displayName}
+            {taskType === "ONE_OFF" ? (
+              <label className="flex flex-col gap-1 text-sm font-medium">
+                Assign child
+                <select
+                  name="assignedChildId"
+                  className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                  required
+                  defaultValue=""
+                >
+                  <option disabled value="">
+                    Select child
                   </option>
-                ))}
-              </select>
-            </label>
+                  {childOptions.map((child) => (
+                    <option key={child.id} value={child.id}>
+                      {child.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <div>
+                <p className="mb-1 text-sm font-medium">Assign children (recurring)</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {childOptions.map((child) => (
+                    <label
+                      key={child.id}
+                      className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                    >
+                      <input type="checkbox" name="assignedChildIds" value={child.id} className="h-4 w-4" />
+                      <span>{child.displayName}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <Input name="title" label="Task title" required />
             <Input name="description" label="Description (optional)" />
             <Input name="points" label="Points" type="number" min={1} required />
+            <Input name="deadlineAt" label="Deadline (optional)" type="datetime-local" />
+            <Input
+              name="timerDurationMinutes"
+              label="Running Timer (minutes, optional)"
+              type="number"
+              min={1}
+              max={240}
+            />
 
             <label className="flex flex-col gap-1 text-sm font-medium">
               Task type
@@ -643,6 +842,8 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                 event.preventDefault();
                 const formData = new FormData(event.currentTarget);
                 const normalizedRecurrence = editTaskType === "ONE_OFF" ? "NONE" : editRecurrenceType;
+                const deadlineValue = formData.get("deadlineAt");
+                const timerDurationValue = formData.get("timerDurationMinutes");
 
                 void handleAction(async () => {
                   await fetchJson(`/api/parent/tasks/${selectedTask.id}`, {
@@ -656,6 +857,14 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                       taskType: editTaskType,
                       recurrenceType: normalizedRecurrence,
                       weekdays: normalizedRecurrence === "WEEKDAYS" ? editWeekdays : [],
+                      deadlineAt:
+                        typeof deadlineValue === "string" && deadlineValue.length > 0
+                          ? new Date(deadlineValue).toISOString()
+                          : undefined,
+                      timerDurationMinutes:
+                        typeof timerDurationValue === "string" && timerDurationValue.length > 0
+                          ? Number(timerDurationValue)
+                          : undefined,
                       requiresApproval: formData.get("requiresApproval") === "on",
                       isActive: formData.get("isActive") === "on"
                     })
@@ -700,6 +909,20 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                 defaultValue={selectedTask.description ?? ""}
               />
               <Input name="points" label="Points" type="number" min={1} defaultValue={selectedTask.points} required />
+              <Input
+                name="deadlineAt"
+                label="Deadline (optional)"
+                type="datetime-local"
+                defaultValue={toDateTimeLocalValue(selectedTask.deadlineAt)}
+              />
+              <Input
+                name="timerDurationMinutes"
+                label="Running Timer (minutes, optional)"
+                type="number"
+                min={1}
+                max={240}
+                defaultValue={selectedTask.timerDurationMinutes ?? ""}
+              />
 
               <label className="flex flex-col gap-1 text-sm font-medium">
                 Task type
@@ -786,9 +1009,11 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
             </form>
           )}
         </Card>
-      </section>
+        </section>
+      ) : null}
 
-      <section className="mb-6 grid gap-4 lg:grid-cols-2">
+      {showRewardTools ? (
+        <section id="reward-tools" className="mb-6 grid gap-4 lg:grid-cols-2">
         <Card>
           <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Create Reward</h2>
           <form
@@ -806,17 +1031,18 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                     title: formData.get("title"),
                     description: formData.get("description") || undefined,
                     cost: Number(formData.get("cost")),
-                    iconEmoji: formData.get("iconEmoji") || "🎁"
+                    iconEmoji: createRewardEmoji
                   })
                 });
                 form.reset();
+                setCreateRewardEmoji("🎁");
               }, "Reward created");
             }}
           >
             <Input name="title" label="Reward name" required />
             <Input name="description" label="Description (optional)" />
             <Input name="cost" label="Points cost" type="number" min={1} required />
-            <Input name="iconEmoji" label="Badge emoji" defaultValue="🎁" />
+            <RewardEmojiPicker value={createRewardEmoji} onChange={setCreateRewardEmoji} />
             <Button type="submit" variant="secondary" loading={saving}>
               Add Reward
             </Button>
@@ -839,14 +1065,14 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                   await fetchJson(`/api/parent/rewards/${selectedReward.id}`, {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      title: formData.get("title"),
-                      description: formData.get("description") || undefined,
-                      cost: Number(formData.get("cost")),
-                      iconEmoji: formData.get("iconEmoji") || "🎁",
-                      isActive: formData.get("isActive") === "on"
-                    })
-                  });
+                  body: JSON.stringify({
+                    title: formData.get("title"),
+                    description: formData.get("description") || undefined,
+                    cost: Number(formData.get("cost")),
+                    iconEmoji: editRewardEmoji,
+                    isActive: formData.get("isActive") === "on"
+                  })
+                });
                 }, "Reward updated");
               }}
             >
@@ -872,7 +1098,7 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                 defaultValue={selectedReward.description ?? ""}
               />
               <Input name="cost" label="Points cost" type="number" min={1} defaultValue={selectedReward.cost} required />
-              <Input name="iconEmoji" label="Badge emoji" defaultValue={selectedReward.iconEmoji} />
+              <RewardEmojiPicker value={editRewardEmoji} onChange={setEditRewardEmoji} />
 
               <label className="flex items-center gap-2 text-sm font-medium">
                 <input
@@ -890,9 +1116,11 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
             </form>
           )}
         </Card>
-      </section>
+        </section>
+      ) : null}
 
-      <section className="mb-6 grid gap-4 lg:grid-cols-2">
+      {showApprovals ? (
+        <section id="approvals" className="mb-6 grid gap-4 lg:grid-cols-2">
         <Card>
           <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Pending Task Approvals</h2>
           <div className="space-y-3">
@@ -1003,9 +1231,436 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
             )}
           </div>
         </Card>
-      </section>
+        </section>
+      ) : null}
 
-      <section className="grid gap-4 lg:grid-cols-2">
+      {showBillingTools ? (
+        <section id="billing-tools" className="mb-6 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Billing & Subscription</h2>
+          <div className="space-y-2 text-sm text-slate-700">
+            <p>
+              Status: <span className="font-semibold capitalize">{formatStatusLabel(data.billing.status)}</span>
+            </p>
+            <p>
+              Current interval:{" "}
+              <span className="font-semibold capitalize">{data.billing.interval.toLowerCase()}</span>
+            </p>
+            <p>
+              Family size: <span className="font-semibold">{data.billing.childCount}</span> child profiles
+            </p>
+            <p>
+              Monthly model: <span className="font-semibold">{formatCents(data.billing.monthlyAmountCents)}</span>
+            </p>
+            <p>
+              Annual model (10x monthly):{" "}
+              <span className="font-semibold">{formatCents(data.billing.annualAmountCents)}</span>
+            </p>
+            <p>
+              Stripe linked:{" "}
+              <span className={`font-semibold ${data.billing.stripeCustomerLinked ? "text-board-mint" : "text-board-coral"}`}>
+                {data.billing.stripeCustomerLinked ? "Yes" : "Not yet"}
+              </span>
+            </p>
+            {data.billing.currentPeriodEnd ? (
+              <p>
+                Current period ends:{" "}
+                <span className="font-semibold">
+                  {new Date(data.billing.currentPeriodEnd).toLocaleDateString()}
+                </span>
+              </p>
+            ) : null}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              loading={saving}
+              onClick={() =>
+                void handleAction(async () => {
+                  const result = await fetchJson<{ url: string | null }>("/api/billing/checkout-session", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ interval: "MONTHLY" })
+                  });
+
+                  if (result.url) {
+                    window.location.href = result.url;
+                  }
+                }, "Opening Stripe checkout")
+              }
+            >
+              Start Monthly Plan
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              loading={saving}
+              onClick={() =>
+                void handleAction(async () => {
+                  const result = await fetchJson<{ url: string | null }>("/api/billing/checkout-session", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ interval: "ANNUAL" })
+                  });
+
+                  if (result.url) {
+                    window.location.href = result.url;
+                  }
+                }, "Opening Stripe checkout")
+              }
+            >
+              Start Annual Plan
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              loading={saving}
+              onClick={() =>
+                void handleAction(async () => {
+                  const result = await fetchJson<{ url: string }>("/api/billing/portal-session", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({})
+                  });
+                  window.location.href = result.url;
+                }, "Opening billing portal")
+              }
+            >
+              Open Billing Portal
+            </Button>
+          </div>
+        </Card>
+
+        <Card>
+          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Family Parents</h2>
+          <div className="space-y-2 text-sm">
+            {data.parents.map((parent) => (
+              <div key={parent.id} className="rounded-xl border border-slate-200 p-3">
+                <p className="font-semibold">
+                  {parent.displayName} {parent.isFamilyOwner ? "(Owner)" : ""}
+                </p>
+                <p className="text-slate-600">{parent.email}</p>
+                <p className="text-xs text-slate-500">Added {new Date(parent.createdAt).toLocaleDateString()}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+        </section>
+      ) : null}
+
+      {showVoiceTools ? (
+        <section id="voice-tools" className="mb-6 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Voice Assistant Tokens</h2>
+          <p className="mb-3 text-sm text-slate-600">
+            Create private tokens per parent for Siri Shortcuts or Google Home automations.
+          </p>
+          <form
+            className="grid gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = event.currentTarget;
+              const formData = new FormData(event.currentTarget);
+
+              void handleAction(async () => {
+                const created = await fetchJson<VoiceTokenRow>("/api/parent/voice/tokens", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    label: formData.get("label")
+                  })
+                });
+
+                if (created.token) {
+                  setRevealedVoiceToken(created.token);
+                }
+                form.reset();
+              }, "Voice token created");
+            }}
+          >
+            <Input name="label" label="Token label" placeholder="Kitchen speaker" required />
+            <Button type="submit" loading={saving}>
+              Create Voice Token
+            </Button>
+          </form>
+          {revealedVoiceToken ? (
+            <div className="mt-3 rounded-xl border border-board-sun/30 bg-board-sun/10 p-3 text-sm">
+              <p className="font-semibold text-board-ink">Copy this token now:</p>
+              <p className="mt-1 break-all font-mono text-xs text-board-ink">{revealedVoiceToken}</p>
+            </div>
+          ) : null}
+        </Card>
+
+        <Card>
+          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">My Voice Tokens</h2>
+          <div className="space-y-3">
+            {voiceTokens.length === 0 ? (
+              <p className="text-sm text-slate-500">No voice tokens yet.</p>
+            ) : (
+              voiceTokens.map((token) => (
+                <div key={token.id} className="rounded-2xl border border-slate-200 p-3">
+                  <p className="font-semibold">{token.label}</p>
+                  <p className="text-xs text-slate-500">Preview: {token.tokenPreview ?? "n/a"}</p>
+                  <p className="text-xs text-slate-500">
+                    Last used: {token.lastUsedAt ? new Date(token.lastUsedAt).toLocaleString() : "Never"}
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <Button
+                      type="button"
+                      variant={token.isActive ? "danger" : "secondary"}
+                      className="h-8"
+                      loading={saving}
+                      onClick={() =>
+                        void handleAction(async () => {
+                          await fetchJson(`/api/parent/voice/tokens/${token.id}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ isActive: !token.isActive })
+                          });
+                        }, token.isActive ? "Voice token revoked" : "Voice token re-activated")
+                      }
+                    >
+                      {token.isActive ? "Revoke" : "Activate"}
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+        </section>
+      ) : null}
+
+      {showSupportTools ? (
+        <section id="support-tools" className="mb-6 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Open Support Ticket</h2>
+          <form
+            className="grid gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = event.currentTarget;
+              const formData = new FormData(event.currentTarget);
+
+              void handleAction(async () => {
+                await fetchJson("/api/parent/support/tickets", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    subject: formData.get("subject"),
+                    description: formData.get("description"),
+                    type: formData.get("type"),
+                    priority: formData.get("priority"),
+                    category: formData.get("category") || undefined
+                  })
+                });
+                form.reset();
+              }, "Support ticket opened");
+            }}
+          >
+            <Input name="subject" label="Subject" required />
+            <Input name="category" label="Category (optional)" />
+            <label className="flex flex-col gap-1 text-sm font-medium">
+              Ticket type
+              <select
+                name="type"
+                defaultValue="SUPPORT"
+                className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+              >
+                <option value="SUPPORT">Support issue</option>
+                <option value="FEATURE_REQUEST">Feature request</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm font-medium">
+              Priority
+              <select
+                name="priority"
+                defaultValue="NORMAL"
+                className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+              >
+                <option value="LOW">Low</option>
+                <option value="NORMAL">Normal</option>
+                <option value="HIGH">High</option>
+                <option value="URGENT">Urgent</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm font-medium">
+              Description
+              <textarea
+                name="description"
+                rows={4}
+                required
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-board-mint transition focus:ring-2"
+                placeholder="Describe the issue and what you already tried."
+              />
+            </label>
+            <Button type="submit" loading={saving}>
+              Submit Ticket
+            </Button>
+          </form>
+        </Card>
+
+        <Card>
+          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Support Timeline</h2>
+          <div className="max-h-[540px] space-y-3 overflow-y-auto pr-1">
+            {data.supportTickets.length === 0 ? (
+              <p className="text-sm text-slate-500">No support tickets yet.</p>
+            ) : (
+              data.supportTickets.map((ticket) => (
+                <div key={ticket.id} className="rounded-2xl border border-slate-200 p-3">
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                      {formatStatusLabel(ticket.status)}
+                    </span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                        ticket.type === "FEATURE_REQUEST"
+                          ? "bg-board-sky/20 text-board-ink"
+                          : "bg-board-mint/20 text-board-ink"
+                      }`}
+                    >
+                      {ticket.type === "FEATURE_REQUEST" ? "feature request" : "support"}
+                    </span>
+                    <span className="rounded-full bg-board-sun/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-board-ink">
+                      {ticket.priority.toLowerCase()}
+                    </span>
+                  </div>
+                  <p className="font-semibold">{ticket.subject}</p>
+                  <p className="text-xs text-slate-500">
+                    Created by {ticket.createdBy.displayName} • {new Date(ticket.createdAt).toLocaleString()}
+                  </p>
+                  {ticket.assignedTo ? (
+                    <p className="text-xs text-slate-500">Assigned to {ticket.assignedTo.displayName}</p>
+                  ) : null}
+
+                  <div className="mt-2 max-h-36 space-y-2 overflow-y-auto rounded-xl bg-slate-50 p-2">
+                    {ticket.messages.map((message) => (
+                      <div key={message.id} className="rounded-xl bg-white p-2 text-xs shadow-sm">
+                        <p className="font-semibold">{message.author.displayName}</p>
+                        <p>{message.body}</p>
+                        <p className="text-slate-500">{new Date(message.createdAt).toLocaleString()}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <form
+                    className="mt-2 grid gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const form = event.currentTarget;
+                      const formData = new FormData(event.currentTarget);
+
+                      void handleAction(async () => {
+                        await fetchJson(`/api/parent/support/tickets/${ticket.id}/messages`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            body: formData.get("body")
+                          })
+                        });
+                        form.reset();
+                      }, "Support reply sent");
+                    }}
+                  >
+                    <textarea
+                      name="body"
+                      rows={2}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-board-mint transition focus:ring-2"
+                      placeholder="Reply to this ticket"
+                      required
+                    />
+                    <Button type="submit" variant="secondary" loading={saving}>
+                      Send Reply
+                    </Button>
+                  </form>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+        </section>
+      ) : null}
+
+      {showAdminTools ? (
+        <section id="admin-settings" className="mb-6 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Admin: Parent Accounts</h2>
+          <p className="mb-3 text-sm text-slate-600">
+            Family owner can add a second parent login for shared management.
+          </p>
+          <form
+            className="grid gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = event.currentTarget;
+              const formData = new FormData(event.currentTarget);
+
+              void handleAction(async () => {
+                await fetchJson("/api/parent/parents", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    parentName: formData.get("parentName"),
+                    email: formData.get("email"),
+                    password: formData.get("password")
+                  })
+                });
+                form.reset();
+              }, "Parent account created");
+            }}
+          >
+            <Input name="parentName" label="Parent name" required />
+            <Input name="email" label="Parent email" type="email" required />
+            <Input name="password" label="Parent password" type="password" required />
+            <Button type="submit" loading={saving}>
+              Create Parent Account
+            </Button>
+          </form>
+        </Card>
+
+        <Card>
+          <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Admin: Child Accounts</h2>
+          <p className="mb-3 text-sm text-slate-600">
+            Add or manage child logins from this admin area instead of the regular daily workflow.
+          </p>
+          <form
+            className="grid gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = event.currentTarget;
+              const formData = new FormData(event.currentTarget);
+              void handleAction(async () => {
+                await fetchJson("/api/parent/children", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    childName: formData.get("childName"),
+                    email: formData.get("email"),
+                    password: formData.get("password"),
+                    avatarEmoji: formData.get("avatarEmoji") || selectedAvatar
+                  })
+                });
+                form.reset();
+                setSelectedAvatar("⭐");
+              }, "Child account created");
+            }}
+          >
+            <Input name="childName" label="Child name" required />
+            <Input name="email" label="Child email" type="email" required />
+            <Input name="password" label="Child password" type="password" required />
+            <input type="hidden" name="avatarEmoji" value={selectedAvatar} />
+            <AvatarPicker value={selectedAvatar} onChange={setSelectedAvatar} />
+            <Button type="submit" loading={saving}>
+              Create Child Account
+            </Button>
+          </form>
+        </Card>
+        </section>
+      ) : null}
+
+      {showActivityPanel ? (
+        <section className="grid gap-4 lg:grid-cols-2">
         <Card>
           <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Active Tasks & Rewards</h2>
           <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
@@ -1019,6 +1674,14 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
                     {task.assignedChild.childProfile?.avatarEmoji ?? "⭐"} {task.assignedChild.displayName} • {task.points} pts •{" "}
                     {task.taskType.replace("_", " ")} / {task.recurrenceType}
                   </p>
+                  {task.deadlineAt ? (
+                    <p className="mt-1 text-xs font-semibold text-board-coral">
+                      Deadline: {new Date(task.deadlineAt).toLocaleString()}
+                    </p>
+                  ) : null}
+                  {task.timerDurationMinutes ? (
+                    <p className="mt-1 text-xs font-semibold text-board-ink">Timer: {task.timerDurationMinutes} min</p>
+                  ) : null}
                 </div>
               ))
             )}
@@ -1076,7 +1739,8 @@ export function ParentDashboard({ parentName }: ParentDashboardProps) {
             )}
           </div>
         </Card>
-      </section>
+        </section>
+      ) : null}
     </main>
   );
 }

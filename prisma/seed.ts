@@ -1,15 +1,20 @@
 import {
   ActivityType,
+  BillingInterval,
   PointTransactionType,
   PrismaClient,
   RecurrenceType,
   RedemptionStatus,
   Role,
+  SubscriptionStatus,
+  SupportTicketPriority,
+  SupportTicketStatus,
+  SupportTicketType,
   TaskCompletionStatus,
   TaskType
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 const prisma = new PrismaClient();
 
@@ -21,7 +26,15 @@ function hashVoiceToken(token: string, salt: string): string {
   return createHash("sha256").update(`${salt}:${token}`).digest("hex");
 }
 
+function tokenPreview(token: string): string {
+  return `${token.slice(0, 6)}...`;
+}
+
 async function resetDatabase() {
+  await prisma.supportTicketMessage.deleteMany();
+  await prisma.supportTicket.deleteMany();
+  await prisma.billingEvent.deleteMany();
+  await prisma.taskTimerSession.deleteMany();
   await prisma.taskCompletion.deleteMany();
   await prisma.rewardRedemption.deleteMany();
   await prisma.pointTransaction.deleteMany();
@@ -40,12 +53,15 @@ interface FamilySeedConfig {
   parentName: string;
   voiceToken: string;
   voiceLabel: string;
+  themePreset?: string;
 }
 
 async function createFamilyWorkspace(config: FamilySeedConfig, parentPasswordHash: string, tokenSalt: string) {
   const family = await prisma.family.create({
     data: {
       name: config.familyName,
+      themePreset: config.themePreset ?? "sun",
+      billingEmail: config.parentEmail,
       activityLogs: {
         create: {
           type: ActivityType.FAMILY_CREATED,
@@ -63,6 +79,8 @@ async function createFamilyWorkspace(config: FamilySeedConfig, parentPasswordHas
       email: config.parentEmail,
       passwordHash: parentPasswordHash,
       displayName: config.parentName,
+      isFamilyOwner: true,
+      onboardingCompletedAt: new Date(),
       activityAsActor: {
         create: {
           familyId: family.id,
@@ -79,12 +97,46 @@ async function createFamilyWorkspace(config: FamilySeedConfig, parentPasswordHas
       familyId: family.id,
       label: config.voiceLabel,
       tokenHash: hashVoiceToken(config.voiceToken, tokenSalt),
+      tokenPreview: tokenPreview(config.voiceToken),
       isActive: true,
-      createdById: parent.id
+      createdById: parent.id,
+      parentId: parent.id
     }
   });
 
   return { family, parent };
+}
+
+async function createAdditionalParent(input: {
+  familyId: string;
+  createdById: string;
+  parentEmail: string;
+  parentName: string;
+  parentPasswordHash: string;
+}) {
+  const parent = await prisma.user.create({
+    data: {
+      familyId: input.familyId,
+      role: Role.PARENT,
+      email: input.parentEmail,
+      passwordHash: input.parentPasswordHash,
+      displayName: input.parentName,
+      isFamilyOwner: false,
+      onboardingCompletedAt: new Date()
+    }
+  });
+
+  await prisma.activityLog.create({
+    data: {
+      familyId: input.familyId,
+      actorId: input.createdById,
+      type: ActivityType.PARENT_ADDED,
+      message: `Additional parent account created for ${input.parentName}`,
+      metadata: { parentId: parent.id, seeded: true }
+    }
+  });
+
+  return parent;
 }
 
 async function createChild(
@@ -120,6 +172,71 @@ async function createChild(
   });
 }
 
+async function createSupportTicket(input: {
+  familyId: string;
+  parentId: string;
+  subject: string;
+  description: string;
+  priority?: SupportTicketPriority;
+  type?: SupportTicketType;
+}) {
+  return prisma.supportTicket.create({
+    data: {
+      familyId: input.familyId,
+      createdById: input.parentId,
+      subject: input.subject,
+      description: input.description,
+      priority: input.priority ?? SupportTicketPriority.NORMAL,
+      type: input.type ?? SupportTicketType.SUPPORT,
+      status: SupportTicketStatus.OPEN,
+      messages: {
+        create: {
+          authorId: input.parentId,
+          body: input.description
+        }
+      }
+    }
+  });
+}
+
+async function seedPlatformAdmin(superAdminPasswordHash: string) {
+  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL ?? "admin@starboard.local";
+  const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD ?? "AdminPass123!";
+
+  const platformFamily = await prisma.family.create({
+    data: {
+      name: "StarBoard Platform",
+      billingEmail: "platform@starboard.local",
+      subscriptionStatus: SubscriptionStatus.ACTIVE,
+      billingInterval: BillingInterval.MONTHLY
+    }
+  });
+
+  const superAdmin = await prisma.user.create({
+    data: {
+      familyId: platformFamily.id,
+      role: Role.SUPER_ADMIN,
+      email: superAdminEmail,
+      passwordHash: superAdminPasswordHash,
+      displayName: "StarBoard Admin",
+      isSupportAgent: true,
+      isFamilyOwner: false
+    }
+  });
+
+  await prisma.activityLog.create({
+    data: {
+      familyId: platformFamily.id,
+      actorId: superAdmin.id,
+      type: ActivityType.USER_CREATED,
+      message: "Seeded super admin account for platform operations",
+      metadata: { seeded: true }
+    }
+  });
+
+  return { superAdminEmail, superAdminPassword };
+}
+
 async function seedTaskAllocationDataset(parentPasswordHash: string, childPasswordHash: string, tokenSalt: string) {
   const parentPassword = process.env.SEED_PARENT_PASSWORD ?? "ChangeMe123!";
   const parentEmail = process.env.SEED_PARENT_EMAIL ?? "parent@starboard.local";
@@ -131,11 +248,34 @@ async function seedTaskAllocationDataset(parentPasswordHash: string, childPasswo
       parentEmail,
       parentName: "Parent Allocation",
       voiceToken,
-      voiceLabel: "Allocation Assistant"
+      voiceLabel: "Allocation Assistant",
+      themePreset: "sun"
     },
     parentPasswordHash,
     tokenSalt
   );
+
+  const coParentEmail = "coparent@starboard.local";
+  const coParent = await createAdditionalParent({
+    familyId: family.id,
+    createdById: parent.id,
+    parentEmail: coParentEmail,
+    parentName: "Co-Parent Allocation",
+    parentPasswordHash
+  });
+
+  const coParentVoiceToken = `starboard-voice-${randomBytes(4).toString("hex")}`;
+  await prisma.voiceApiToken.create({
+    data: {
+      familyId: family.id,
+      label: "Co-parent Assistant",
+      tokenHash: hashVoiceToken(coParentVoiceToken, tokenSalt),
+      tokenPreview: tokenPreview(coParentVoiceToken),
+      isActive: true,
+      createdById: coParent.id,
+      parentId: coParent.id
+    }
+  });
 
   const leia = await createChild(family.id, childPasswordHash, {
     email: "leia@starboard.local",
@@ -154,6 +294,8 @@ async function seedTaskAllocationDataset(parentPasswordHash: string, childPasswo
     currentStreak: 1,
     longestStreak: 3
   });
+
+  const readDeadline = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
   await prisma.task.createMany({
     data: [
@@ -179,11 +321,12 @@ async function seedTaskAllocationDataset(parentPasswordHash: string, childPasswo
         taskType: TaskType.ONE_OFF,
         recurrenceType: RecurrenceType.NONE,
         weekdays: [],
+        deadlineAt: readDeadline,
         requiresApproval: true
       },
       {
         familyId: family.id,
-        createdById: parent.id,
+        createdById: coParent.id,
         assignedChildId: william.id,
         title: "Room tidy-up",
         description: "Tidy room before dinner on weekdays.",
@@ -191,11 +334,12 @@ async function seedTaskAllocationDataset(parentPasswordHash: string, childPasswo
         taskType: TaskType.RECURRING,
         recurrenceType: RecurrenceType.WEEKDAYS,
         weekdays: [1, 2, 3, 4, 5],
+        timerDurationMinutes: 20,
         requiresApproval: true
       },
       {
         familyId: family.id,
-        createdById: parent.id,
+        createdById: coParent.id,
         assignedChildId: william.id,
         title: "Pack school bag",
         description: "Prepare school books and lunch box for tomorrow.",
@@ -220,7 +364,7 @@ async function seedTaskAllocationDataset(parentPasswordHash: string, childPasswo
       },
       {
         familyId: family.id,
-        createdById: parent.id,
+        createdById: coParent.id,
         title: "Extra screen time",
         description: "30 extra minutes of screen time.",
         cost: 45,
@@ -243,13 +387,33 @@ async function seedTaskAllocationDataset(parentPasswordHash: string, childPasswo
       {
         familyId: family.id,
         childId: william.id,
-        actorId: parent.id,
+        actorId: coParent.id,
         type: PointTransactionType.MANUAL_ADD,
         amount: 18,
         note: "Starter points for testing",
         referenceType: "SEED"
       }
     ]
+  });
+
+  await prisma.family.update({
+    where: { id: family.id },
+    data: {
+      subscriptionStatus: SubscriptionStatus.ACTIVE,
+      billingInterval: BillingInterval.MONTHLY,
+      stripeCustomerId: `cus_seed_${randomBytes(6).toString("hex")}`,
+      stripeSubscriptionId: `sub_seed_${randomBytes(6).toString("hex")}`,
+      billingUpdatedAt: new Date(),
+      subscriptionCurrentPeriodEnd: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
+    }
+  });
+
+  const supportTicket = await createSupportTicket({
+    familyId: family.id,
+    parentId: coParent.id,
+    subject: "Need help connecting Google Home",
+    description: "Voice points command is not triggering from the kitchen speaker.",
+    priority: SupportTicketPriority.HIGH
   });
 
   await prisma.activityLog.createMany({
@@ -263,7 +427,7 @@ async function seedTaskAllocationDataset(parentPasswordHash: string, childPasswo
       },
       {
         familyId: family.id,
-        actorId: parent.id,
+        actorId: coParent.id,
         childId: william.id,
         type: ActivityType.TASK_CREATED,
         message: "Created task set for allocation testing (William)"
@@ -271,8 +435,11 @@ async function seedTaskAllocationDataset(parentPasswordHash: string, childPasswo
       {
         familyId: family.id,
         actorId: parent.id,
-        type: ActivityType.REWARD_CREATED,
-        message: "Created rewards for allocation testing"
+        type: ActivityType.SUPPORT_TICKET_CREATED,
+        message: `Support ticket opened: ${supportTicket.subject}`,
+        metadata: {
+          ticketId: supportTicket.id
+        }
       }
     ]
   });
@@ -280,8 +447,10 @@ async function seedTaskAllocationDataset(parentPasswordHash: string, childPasswo
   return {
     parentEmail,
     parentPassword,
+    coParentEmail,
     childEmails: ["leia@starboard.local", "william@starboard.local"],
-    voiceToken
+    voiceToken,
+    coParentVoiceToken
   };
 }
 
@@ -294,7 +463,8 @@ async function seedApprovalDataset(parentPasswordHash: string, childPasswordHash
       parentEmail: "parent.approvals@starboard.local",
       parentName: "Parent Approvals",
       voiceToken: "starboard-voice-approvals",
-      voiceLabel: "Approval Assistant"
+      voiceLabel: "Approval Assistant",
+      themePreset: "mint"
     },
     parentPasswordHash,
     tokenSalt
@@ -329,6 +499,7 @@ async function seedApprovalDataset(parentPasswordHash: string, childPasswordHash
       taskType: TaskType.RECURRING,
       recurrenceType: RecurrenceType.DAILY,
       weekdays: [],
+      timerDurationMinutes: 15,
       requiresApproval: true
     }
   });
@@ -431,6 +602,25 @@ async function seedApprovalDataset(parentPasswordHash: string, childPasswordHash
     }
   });
 
+  await createSupportTicket({
+    familyId: family.id,
+    parentId: parent.id,
+    subject: "Billing question for annual plan",
+    description: "Can I switch this family to annual billing and keep all existing data?",
+    priority: SupportTicketPriority.NORMAL
+  });
+
+  await prisma.family.update({
+    where: { id: family.id },
+    data: {
+      subscriptionStatus: SubscriptionStatus.PAST_DUE,
+      billingInterval: BillingInterval.MONTHLY,
+      stripeCustomerId: `cus_seed_${randomBytes(6).toString("hex")}`,
+      stripeSubscriptionId: `sub_seed_${randomBytes(6).toString("hex")}`,
+      billingUpdatedAt: new Date()
+    }
+  });
+
   await prisma.activityLog.createMany({
     data: [
       {
@@ -467,7 +657,8 @@ async function seedRedemptionDataset(parentPasswordHash: string, childPasswordHa
       parentEmail: "parent.rewards@starboard.local",
       parentName: "Parent Rewards",
       voiceToken: "starboard-voice-rewards",
-      voiceLabel: "Rewards Assistant"
+      voiceLabel: "Rewards Assistant",
+      themePreset: "sky"
     },
     parentPasswordHash,
     tokenSalt
@@ -568,6 +759,27 @@ async function seedRedemptionDataset(parentPasswordHash: string, childPasswordHa
     ]
   });
 
+  await createSupportTicket({
+    familyId: family.id,
+    parentId: parent.id,
+    subject: "Siri shortcut payload format",
+    description: "Please share the expected JSON payload to request a reward over Siri.",
+    priority: SupportTicketPriority.LOW,
+    type: SupportTicketType.FEATURE_REQUEST
+  });
+
+  await prisma.family.update({
+    where: { id: family.id },
+    data: {
+      subscriptionStatus: SubscriptionStatus.ACTIVE,
+      billingInterval: BillingInterval.ANNUAL,
+      stripeCustomerId: `cus_seed_${randomBytes(6).toString("hex")}`,
+      stripeSubscriptionId: `sub_seed_${randomBytes(6).toString("hex")}`,
+      billingUpdatedAt: new Date(),
+      subscriptionCurrentPeriodEnd: new Date(Date.now() + 280 * 24 * 60 * 60 * 1000)
+    }
+  });
+
   await prisma.activityLog.createMany({
     data: [
       {
@@ -598,22 +810,30 @@ async function seedRedemptionDataset(parentPasswordHash: string, childPasswordHa
 async function main() {
   const parentPassword = process.env.SEED_PARENT_PASSWORD ?? "ChangeMe123!";
   const childPassword = "StarKid123!";
+  const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD ?? "AdminPass123!";
   const tokenSalt = process.env.VOICE_TOKEN_SALT ?? "change-me-too";
 
   await resetDatabase();
 
   const parentPasswordHash = await bcrypt.hash(parentPassword, 12);
   const childPasswordHash = await bcrypt.hash(childPassword, 12);
+  const superAdminPasswordHash = await bcrypt.hash(superAdminPassword, 12);
 
+  const platform = await seedPlatformAdmin(superAdminPasswordHash);
   const allocation = await seedTaskAllocationDataset(parentPasswordHash, childPasswordHash, tokenSalt);
   const approvals = await seedApprovalDataset(parentPasswordHash, childPasswordHash, tokenSalt);
   const rewards = await seedRedemptionDataset(parentPasswordHash, childPasswordHash, tokenSalt);
 
-  console.log("Seed complete with 3 datasets:");
+  console.log("Seed complete with 3 family datasets plus platform admin:");
+
+  console.log("\n[Platform Admin]");
+  console.log(`Admin login: ${platform.superAdminEmail} / ${platform.superAdminPassword}`);
+
   console.log("\n[Dataset 1] Task Allocation");
   console.log(`Parent login: ${allocation.parentEmail} / ${allocation.parentPassword}`);
+  console.log(`Co-parent login: ${allocation.coParentEmail} / ${allocation.parentPassword}`);
   console.log(`Child logins: ${allocation.childEmails.join(", ")} / ${childPassword}`);
-  console.log(`Voice token: ${allocation.voiceToken}`);
+  console.log(`Voice tokens: ${allocation.voiceToken}, ${allocation.coParentVoiceToken}`);
 
   console.log("\n[Dataset 2] Approval Flow");
   console.log(`Parent login: ${approvals.parentEmail} / ${approvals.parentPassword}`);

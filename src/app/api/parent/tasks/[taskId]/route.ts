@@ -61,6 +61,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       taskType: payload.data.taskType,
       recurrenceType: payload.data.recurrenceType,
       weekdays: payload.data.weekdays,
+      deadlineAt: payload.data.deadlineAt ?? null,
+      timerDurationMinutes: payload.data.timerDurationMinutes ?? null,
       requiresApproval: payload.data.requiresApproval,
       isActive: payload.data.isActive
     }
@@ -76,7 +78,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       metadata: {
         taskId: updatedTask.id,
         isActive: updatedTask.isActive,
-        recurrenceType: updatedTask.recurrenceType
+        recurrenceType: updatedTask.recurrenceType,
+        deadlineAt: updatedTask.deadlineAt,
+        timerDurationMinutes: updatedTask.timerDurationMinutes
       }
     }
   });

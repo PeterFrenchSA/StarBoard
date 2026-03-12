@@ -1,12 +1,50 @@
-import { TaskCompletionStatus, RedemptionStatus, Role } from "@prisma/client";
+import {
+  BillingInterval,
+  RedemptionStatus,
+  Role,
+  SupportTicketStatus,
+  TaskCompletionStatus
+} from "@prisma/client";
 import { startOfMonth } from "date-fns";
+import { calculateFamilyPlanPrice } from "@/lib/billing/pricing";
 import { db } from "@/lib/db";
 import { getChildPoints, getPointsByChildIds } from "@/lib/points/service";
-import { canTaskOccurToday } from "@/lib/tasks/recurrence";
+import { canTaskOccurToday, getOccurrenceDate } from "@/lib/tasks/recurrence";
 
 export async function getParentOverviewData(familyId: string) {
-  const [children, pendingTaskApprovals, pendingRedemptions, tasks, rewards, activity] =
+  const [family, parents, children, pendingTaskApprovals, pendingRedemptions, tasks, rewards, activity, supportTickets] =
     await Promise.all([
+      db.family.findUniqueOrThrow({
+        where: { id: familyId },
+        select: {
+          id: true,
+          name: true,
+          billingInterval: true,
+          subscriptionStatus: true,
+          billingEmail: true,
+          stripeCustomerId: true,
+          subscriptionCurrentPeriodEnd: true,
+          subscriptionCancelAtPeriodEnd: true,
+          planBaseAmountCents: true,
+          includedChildren: true,
+          additionalChildAmountCents: true
+        }
+      }),
+      db.user.findMany({
+        where: {
+          familyId,
+          role: Role.PARENT,
+          isActive: true
+        },
+        select: {
+          id: true,
+          displayName: true,
+          email: true,
+          isFamilyOwner: true,
+          createdAt: true
+        },
+        orderBy: [{ isFamilyOwner: "desc" }, { displayName: "asc" }]
+      }),
       db.user.findMany({
         where: { familyId, role: Role.CHILD, isActive: true },
         include: {
@@ -65,6 +103,43 @@ export async function getParentOverviewData(familyId: string) {
         },
         orderBy: { createdAt: "desc" },
         take: 50
+      }),
+      db.supportTicket.findMany({
+        where: { familyId },
+        include: {
+          createdBy: {
+            select: {
+              id: true,
+              displayName: true,
+              role: true
+            }
+          },
+          assignedTo: {
+            select: {
+              id: true,
+              displayName: true,
+              role: true
+            }
+          },
+          messages: {
+            where: {
+              isInternal: false
+            },
+            orderBy: { createdAt: "asc" },
+            take: 12,
+            include: {
+              author: {
+                select: {
+                  id: true,
+                  displayName: true,
+                  role: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
+        take: 30
       })
     ]);
 
@@ -81,33 +156,78 @@ export async function getParentOverviewData(familyId: string) {
   }));
 
   const monthStart = startOfMonth(new Date());
-  const monthlyPoints = await db.pointTransaction.aggregate({
-    where: {
-      familyId,
-      createdAt: { gte: monthStart },
-      amount: { gt: 0 }
-    },
-    _sum: { amount: true }
+
+  const [monthlyPoints, openSupportTicketsCount] = await Promise.all([
+    db.pointTransaction.aggregate({
+      where: {
+        familyId,
+        createdAt: { gte: monthStart },
+        amount: { gt: 0 }
+      },
+      _sum: { amount: true }
+    }),
+    db.supportTicket.count({
+      where: {
+        familyId,
+        status: {
+          in: [SupportTicketStatus.OPEN, SupportTicketStatus.IN_PROGRESS, SupportTicketStatus.WAITING_ON_PARENT]
+        }
+      }
+    })
+  ]);
+
+  const monthlyPricing = calculateFamilyPlanPrice({
+    childCount: children.length,
+    interval: BillingInterval.MONTHLY,
+    baseAmountCents: family.planBaseAmountCents,
+    includedChildren: family.includedChildren,
+    additionalChildAmountCents: family.additionalChildAmountCents
+  });
+
+  const annualPricing = calculateFamilyPlanPrice({
+    childCount: children.length,
+    interval: BillingInterval.ANNUAL,
+    baseAmountCents: family.planBaseAmountCents,
+    includedChildren: family.includedChildren,
+    additionalChildAmountCents: family.additionalChildAmountCents
   });
 
   return {
+    parents,
     children: childrenWithStats,
     pendingTaskApprovals,
     pendingRedemptions,
     tasks,
     rewards,
+    supportTickets,
     activity,
+    billing: {
+      interval: family.billingInterval,
+      status: family.subscriptionStatus,
+      billingEmail: family.billingEmail,
+      stripeCustomerLinked: Boolean(family.stripeCustomerId),
+      currentPeriodEnd: family.subscriptionCurrentPeriodEnd,
+      cancelAtPeriodEnd: family.subscriptionCancelAtPeriodEnd,
+      childCount: children.length,
+      includedChildren: family.includedChildren,
+      additionalChildren: monthlyPricing.additionalChildren,
+      monthlyAmountCents: monthlyPricing.monthlyAmountCents,
+      annualAmountCents: annualPricing.billedAmountCents
+    },
     stats: {
       childrenCount: children.length,
       activeTasksCount: tasks.length,
       totalPositivePointsThisMonth: monthlyPoints._sum.amount ?? 0,
-      pendingApprovalsCount: pendingTaskApprovals.length + pendingRedemptions.length
+      pendingApprovalsCount: pendingTaskApprovals.length + pendingRedemptions.length,
+      openSupportTicketsCount
     }
   };
 }
 
 export async function getChildOverviewData(familyId: string, childId: string) {
-  const [child, tasks, completions, rewards, rewardRequests, activity, pointsHistory] =
+  const todayOccurrenceDate = getOccurrenceDate();
+
+  const [child, tasks, completions, rewards, rewardRequests, activity, pointsHistory, timerSessions] =
     await Promise.all([
       db.user.findFirstOrThrow({
         where: {
@@ -171,6 +291,14 @@ export async function getChildOverviewData(familyId: string, childId: string) {
         include: { actor: true },
         orderBy: { createdAt: "desc" },
         take: 30
+      }),
+      db.taskTimerSession.findMany({
+        where: {
+          childId,
+          occurrenceDate: todayOccurrenceDate,
+          task: { familyId }
+        },
+        orderBy: { createdAt: "desc" }
       })
     ]);
 
@@ -200,17 +328,40 @@ export async function getChildOverviewData(familyId: string, childId: string) {
       .map((completion) => completion.taskId)
   );
 
-  const tasksWithAvailability = tasks.map((task) => ({
-    ...task,
-    availableToday: canTaskOccurToday(task) && !oneOffSubmittedTaskIds.has(task.id),
-    completedToday: completedTodayTaskIds.has(task.id),
-    completed: completedTodayTaskIds.has(task.id) || oneOffSubmittedTaskIds.has(task.id),
-    completedMessage: oneOffSubmittedTaskIds.has(task.id)
-      ? "One-off already submitted"
-      : completedTodayTaskIds.has(task.id)
-        ? "Completed today"
-        : null
-  }));
+  const timerSessionByTaskId = new Map(timerSessions.map((session) => [session.taskId, session]));
+  const now = new Date();
+
+  const tasksWithAvailability = tasks.map((task) => {
+    const timerSession = timerSessionByTaskId.get(task.id);
+    const timerActive = Boolean(timerSession && !timerSession.completedAt && timerSession.expiresAt > now);
+    const timerExpired = Boolean(timerSession && !timerSession.completedAt && timerSession.expiresAt <= now);
+    const deadlinePassed = Boolean(task.deadlineAt && task.deadlineAt <= now);
+    const completedToday = completedTodayTaskIds.has(task.id);
+    const oneOffSubmitted = oneOffSubmittedTaskIds.has(task.id);
+    const completed = completedToday || oneOffSubmitted;
+    const scheduledToday = canTaskOccurToday(task) && !oneOffSubmitted;
+
+    return {
+      ...task,
+      availableToday: scheduledToday && !deadlinePassed,
+      completedToday,
+      completed,
+      deadlinePassed,
+      timerActive,
+      timerExpired,
+      timerStartedAt: timerSession?.startedAt ?? null,
+      timerEndsAt: timerSession?.expiresAt ?? null,
+      completedMessage: oneOffSubmitted
+        ? "One-off already submitted"
+        : completedToday
+          ? "Completed today"
+          : deadlinePassed
+            ? "Deadline passed"
+            : timerExpired
+              ? "Timer expired. Start again."
+              : null
+    };
+  });
 
   const rewardsWithProgress = rewards.map((reward) => {
     const progress = Math.min(100, Math.round((points / reward.cost) * 100));

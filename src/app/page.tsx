@@ -2,11 +2,19 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getServerSession } from "@/lib/auth/session";
 
+function getRoleHomePath(role: "PARENT" | "CHILD" | "SUPER_ADMIN"): "/parent" | "/child" | "/provider" {
+  if (role === "SUPER_ADMIN") {
+    return "/provider";
+  }
+
+  return role === "PARENT" ? "/parent" : "/child";
+}
+
 export default async function HomePage() {
   const session = await getServerSession();
 
   if (session) {
-    redirect(session.role === "PARENT" ? "/parent" : "/child");
+    redirect(getRoleHomePath(session.role) as never);
   }
 
   return (
