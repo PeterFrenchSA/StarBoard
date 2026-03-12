@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useLayoutEffect, type ReactNode } from "react";
 
 type RouteMatcher = string | RegExp;
 
@@ -122,7 +122,7 @@ function buildMockFetch(routes: MockRoute[], originalFetch: typeof fetch): typeo
 }
 
 export function MockApiProvider({ children, routes }: MockApiProviderProps) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     const originalFetch = globalThis.fetch.bind(globalThis);
     globalThis.fetch = buildMockFetch(routes, originalFetch);
 
