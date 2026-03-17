@@ -115,13 +115,17 @@ rollback.sh
 
 ## Quick Start (Docker, macOS/Linux)
 
-1. Copy env file:
+1. Copy env files:
 
 ```bash
 cp .env.example .env
+cp .env.docker.example .env.docker
 ```
 
-2. Update `.env` values (especially `AUTH_SECRET`, `VOICE_TOKEN_SALT`, and DB password).
+2. Update `.env` and `.env.docker` values (especially `AUTH_SECRET`, `VOICE_TOKEN_SALT`, and DB password).
+
+- `.env` is for host commands (`npm run prisma:*` from your Mac shell) and uses `localhost`.
+- `.env.docker` is for Docker services and uses `db` hostname.
 
 3. Start local stack (`app + db`):
 
@@ -196,6 +200,15 @@ Generate client:
 npm run prisma:generate
 ```
 
+If you run Prisma from your host shell, ensure `.env` points to `localhost`.
+If you run Prisma inside Docker, use:
+
+```bash
+docker compose exec app npm run prisma:generate
+docker compose exec app npm run prisma:deploy
+docker compose exec app npm run prisma:seed
+```
+
 Create/apply local migrations in dev:
 
 ```bash
@@ -221,6 +234,20 @@ npm run lint
 npm run typecheck
 npm run test
 npm run build
+```
+
+## Clean Local Reset (macOS)
+
+To reset to a clean local install:
+
+```bash
+docker compose down -v --remove-orphans
+rm -rf .next storybook-static
+cp .env.example .env
+cp .env.docker.example .env.docker
+docker compose up -d --build
+docker compose exec app npm run prisma:deploy
+docker compose exec app npm run prisma:seed
 ```
 
 E2E smoke test (app must already be running):

@@ -12,7 +12,7 @@ function getRoleHomePath(role: "PARENT" | "CHILD" | "SUPER_ADMIN"): string {
   return role === "PARENT" ? "/parent" : "/child";
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get(SESSION_COOKIE)?.value;
 

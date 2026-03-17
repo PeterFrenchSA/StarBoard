@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Clock3, Flame, LifeBuoy, ListChecks, Star, Users } from "lucide-react";
 import { AvatarPicker } from "@/components/dashboard/avatar-picker";
 import { RewardEmojiPicker } from "@/components/dashboard/reward-emoji-picker";
 import { DashboardHeader } from "@/components/dashboard/header";
@@ -8,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Toast } from "@/components/ui/toast";
+import { fetchJson } from "@/lib/fetch-json";
 
 type TaskKind = "ONE_OFF" | "RECURRING";
 type RecurrenceKind = "NONE" | "DAILY" | "WEEKLY" | "WEEKDAYS";
@@ -175,21 +177,6 @@ function toDateTimeLocalValue(dateValue: string | null | undefined): string {
   const pad = (value: number) => value.toString().padStart(2, "0");
 
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, {
-    credentials: "include",
-    ...init
-  });
-
-  const payload = await response.json();
-
-  if (!response.ok) {
-    throw new Error(payload.error ?? "Request failed");
-  }
-
-  return payload.data as T;
 }
 
 interface ParentDashboardProps {
@@ -422,12 +409,12 @@ export function ParentDashboard({ parentName, mode = "main" }: ParentDashboardPr
   const showActivityPanel = mode === "main";
 
   const modeSubtitle: Record<ParentViewMode, string> = {
-    main: `Welcome back, ${parentName}. Manage children, tasks, rewards, and daily activity.`,
-    approvals: `Welcome back, ${parentName}. Review pending task completions and reward redemptions.`,
-    billing: `Welcome back, ${parentName}. Manage your subscription and billing profile.`,
-    integrations: `Welcome back, ${parentName}. Manage voice assistant tokens and integrations.`,
-    support: `Welcome back, ${parentName}. Create and track support tickets and feature requests.`,
-    admin: `Welcome back, ${parentName}. Manage parent and child account access.`
+    main: `Welcome back, ${parentName}. Family mission control.`,
+    approvals: `Welcome back, ${parentName}. Review pending items.`,
+    billing: `Welcome back, ${parentName}. Billing and subscription.`,
+    integrations: `Welcome back, ${parentName}. Voice and integrations.`,
+    support: `Welcome back, ${parentName}. Support and requests.`,
+    admin: `Welcome back, ${parentName}. Family account settings.`
   };
 
   return (
@@ -465,141 +452,151 @@ export function ParentDashboard({ parentName, mode = "main" }: ParentDashboardPr
 
       {showMainOverview ? (
         <section className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-5">
-        <Card className="p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-500">Children</p>
-          <p className="text-2xl font-black">{data.stats.childrenCount}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-500">Active Tasks</p>
-          <p className="text-2xl font-black">{data.stats.activeTasksCount}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-500">Points This Month</p>
-          <p className="text-2xl font-black">{data.stats.totalPositivePointsThisMonth}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-500">Pending Reviews</p>
-          <button
-            type="button"
-            className="text-left text-2xl font-black text-board-coral underline-offset-4 hover:underline"
-            onClick={() => window.location.assign("/parent/approvals")}
-          >
-            {data.stats.pendingApprovalsCount}
-          </button>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-500">Open Support</p>
-          <button
-            type="button"
-            className="text-left text-2xl font-black text-board-sky underline-offset-4 hover:underline"
-            onClick={() => window.location.assign("/parent/support")}
-          >
-            {data.stats.openSupportTicketsCount}
-          </button>
-        </Card>
+          <Card className="relative overflow-hidden border-white/70 bg-white/90 p-4">
+            <Users className="absolute right-3 top-3 h-5 w-5 text-board-ink" />
+            <p className="text-xs uppercase tracking-wide text-slate-500">Kids</p>
+            <p className="text-3xl font-black">{data.stats.childrenCount}</p>
+          </Card>
+          <Card className="relative overflow-hidden border-white/70 bg-white/90 p-4">
+            <ListChecks className="absolute right-3 top-3 h-5 w-5 text-board-mint" />
+            <p className="text-xs uppercase tracking-wide text-slate-500">Tasks</p>
+            <p className="text-3xl font-black">{data.stats.activeTasksCount}</p>
+          </Card>
+          <Card className="relative overflow-hidden border-white/70 bg-white/90 p-4">
+            <Star className="absolute right-3 top-3 h-5 w-5 text-board-sun" />
+            <p className="text-xs uppercase tracking-wide text-slate-500">Points</p>
+            <p className="text-3xl font-black">{data.stats.totalPositivePointsThisMonth}</p>
+          </Card>
+          <Card className="relative overflow-hidden border-white/70 bg-white/90 p-4">
+            <Clock3 className="absolute right-3 top-3 h-5 w-5 text-board-coral" />
+            <p className="text-xs uppercase tracking-wide text-slate-500">Pending</p>
+            <button
+              type="button"
+              className="text-left text-3xl font-black text-board-coral underline-offset-4 hover:underline"
+              onClick={() => window.location.assign("/parent/approvals")}
+            >
+              {data.stats.pendingApprovalsCount}
+            </button>
+          </Card>
+          <Card className="relative overflow-hidden border-white/70 bg-white/90 p-4">
+            <LifeBuoy className="absolute right-3 top-3 h-5 w-5 text-board-sky" />
+            <p className="text-xs uppercase tracking-wide text-slate-500">Support</p>
+            <button
+              type="button"
+              className="text-left text-3xl font-black text-board-sky underline-offset-4 hover:underline"
+              onClick={() => window.location.assign("/parent/support")}
+            >
+              {data.stats.openSupportTicketsCount}
+            </button>
+          </Card>
         </section>
       ) : null}
 
       {showMainOverview ? (
         <section className="mb-6 grid gap-4 md:grid-cols-2">
-        <Card className="p-4">
-          <h2 className="mb-2 font-[var(--font-display)] text-xl font-black">Task Summary</h2>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="rounded-xl bg-slate-50 p-3">
-              <p className="font-black text-lg text-board-ink">{taskSummary.total}</p>
-              <p>Total Tasks</p>
+          <Card className="p-4">
+            <h2 className="mb-2 font-[var(--font-display)] text-xl font-black">Task Summary</h2>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <p className="font-black text-lg text-board-ink">{taskSummary.total}</p>
+                <p>Total</p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <p className="font-black text-lg text-board-mint">{taskSummary.recurring}</p>
+                <p>Recurring</p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <p className="font-black text-lg text-board-sun">{taskSummary.oneOff}</p>
+                <p>One-off</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-left transition hover:bg-slate-100"
+                onClick={() => window.location.assign("/parent/approvals")}
+              >
+                <p className="font-black text-lg text-board-coral">{taskSummary.requiresApproval}</p>
+                <p>Need review</p>
+              </button>
             </div>
-            <div className="rounded-xl bg-slate-50 p-3">
-              <p className="font-black text-lg text-board-mint">{taskSummary.recurring}</p>
-              <p>Recurring</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 p-3">
-              <p className="font-black text-lg text-board-sun">{taskSummary.oneOff}</p>
-              <p>One-off</p>
-            </div>
-            <button
-              type="button"
-              className="rounded-xl bg-slate-50 p-3 text-left transition hover:bg-slate-100"
-              onClick={() => window.location.assign("/parent/approvals")}
-            >
-              <p className="font-black text-lg text-board-coral">{taskSummary.requiresApproval}</p>
-              <p>Need Approval</p>
-            </button>
-          </div>
-        </Card>
+          </Card>
 
-        <Card className="p-4">
-          <h2 className="mb-2 font-[var(--font-display)] text-xl font-black">Reward Summary</h2>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="rounded-xl bg-slate-50 p-3">
-              <p className="font-black text-lg text-board-ink">{rewardSummary.total}</p>
-              <p>Total Rewards</p>
+          <Card className="p-4">
+            <h2 className="mb-2 font-[var(--font-display)] text-xl font-black">Reward Summary</h2>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <p className="font-black text-lg text-board-ink">{rewardSummary.total}</p>
+                <p>Total</p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <p className="font-black text-lg text-board-mint">{rewardSummary.active}</p>
+                <p>Active</p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <p className="font-black text-lg text-board-sun">{rewardSummary.averageCost}</p>
+                <p>Avg</p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <p className="font-black text-lg text-board-coral">{rewardSummary.maxCost}</p>
+                <p>Max</p>
+              </div>
             </div>
-            <div className="rounded-xl bg-slate-50 p-3">
-              <p className="font-black text-lg text-board-mint">{rewardSummary.active}</p>
-              <p>Active</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 p-3">
-              <p className="font-black text-lg text-board-sun">{rewardSummary.averageCost}</p>
-              <p>Avg Cost</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 p-3">
-              <p className="font-black text-lg text-board-coral">{rewardSummary.maxCost}</p>
-              <p>Highest Cost</p>
-            </div>
-          </div>
-        </Card>
+          </Card>
         </section>
       ) : null}
 
       {showMainOverview ? (
         <section className="mb-6 grid gap-4 md:grid-cols-3">
-        {data.children.length === 0 ? (
-          <Card className="md:col-span-3">
-            <p className="text-sm text-slate-500">No children yet. Add the first child profile to start assigning tasks.</p>
-          </Card>
-        ) : (
-          data.children.map((child) => (
-            <Card key={child.id} className="relative p-4">
-              <div className="mb-2 flex items-center gap-3">
-                <span className="text-2xl">{child.childProfile?.avatarEmoji ?? "⭐"}</span>
-                <div>
-                  <p className="font-bold">{child.displayName}</p>
-                  <p className="text-xs text-slate-500">{child.email}</p>
-                </div>
-              </div>
-
-              {pointDeltas[child.id] ? (
-                <span
-                  className={`absolute right-4 top-4 rounded-full px-2 py-1 text-xs font-black text-white animate-points-flash ${
-                    pointDeltas[child.id] > 0 ? "bg-board-mint" : "bg-board-coral"
-                  }`}
-                >
-                  {pointDeltas[child.id] > 0 ? `+${pointDeltas[child.id]}` : pointDeltas[child.id]} pts
-                </span>
-              ) : null}
-
-              <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="rounded-xl bg-slate-50 p-2">
-                  <p className="font-black text-base text-board-mint">{child.points}</p>
-                  <p>Points</p>
-                </div>
-                <div className="rounded-xl bg-slate-50 p-2">
-                  <p className="font-black text-base text-board-sun">{child.childProfile?.currentStreak ?? 0}</p>
-                  <p>Streak</p>
-                </div>
-              <button
-                  type="button"
-                  className="rounded-xl bg-slate-50 p-2 transition hover:bg-slate-100"
-                  onClick={() => window.location.assign("/parent/approvals")}
-                >
-                  <p className="font-black text-base text-board-coral">{child.pendingTasks + child.pendingRewards}</p>
-                  <p>Pending</p>
-                </button>
-              </div>
+          {data.children.length === 0 ? (
+            <Card className="md:col-span-3">
+              <p className="text-sm text-slate-500">No child profiles yet. Add one in Admin.</p>
             </Card>
-          ))
-        )}
+          ) : (
+            data.children.map((child) => (
+              <Card key={child.id} className="relative overflow-hidden border-white/70 bg-white/90 p-4">
+                <div className="mb-3 flex items-center gap-3">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-3xl">
+                    {child.childProfile?.avatarEmoji ?? "⭐"}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-lg font-black">{child.displayName}</p>
+                    <p className="truncate text-xs uppercase tracking-wide text-slate-500">{child.email}</p>
+                  </div>
+                </div>
+
+                {pointDeltas[child.id] ? (
+                  <span
+                    className={`absolute right-4 top-4 rounded-full px-2 py-1 text-xs font-black text-white animate-points-flash ${
+                      pointDeltas[child.id] > 0 ? "bg-board-mint" : "bg-board-coral"
+                    }`}
+                  >
+                    {pointDeltas[child.id] > 0 ? `+${pointDeltas[child.id]}` : pointDeltas[child.id]} pts
+                  </span>
+                ) : null}
+
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-2">
+                    <Star className="mx-auto mb-1 h-4 w-4 text-board-mint" />
+                    <p className="font-black text-lg text-board-mint">{child.points}</p>
+                    <p>Points</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-2">
+                    <Flame className="mx-auto mb-1 h-4 w-4 text-board-sun" />
+                    <p className="font-black text-lg text-board-sun">{child.childProfile?.currentStreak ?? 0}</p>
+                    <p>Streak</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-slate-100 bg-slate-50 p-2 transition hover:bg-slate-100"
+                    onClick={() => window.location.assign("/parent/approvals")}
+                  >
+                    <Clock3 className="mx-auto mb-1 h-4 w-4 text-board-coral" />
+                    <p className="font-black text-lg text-board-coral">{child.pendingTasks + child.pendingRewards}</p>
+                    <p>Pending</p>
+                  </button>
+                </div>
+              </Card>
+            ))
+          )}
         </section>
       ) : null}
 

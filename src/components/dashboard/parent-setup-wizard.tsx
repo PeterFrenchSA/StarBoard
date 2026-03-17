@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Toast } from "@/components/ui/toast";
+import { fetchJson } from "@/lib/fetch-json";
 
 type TaskType = "RECURRING" | "ONE_OFF";
 type RecurrenceType = "DAILY" | "WEEKLY" | "WEEKDAYS" | "NONE";
@@ -166,7 +167,7 @@ export function ParentSetupWizard({ parentName, initialFamilyName }: ParentSetup
     setSaving(true);
 
     try {
-      const response = await fetch("/api/parent/onboarding/complete", {
+      await fetchJson("/api/parent/onboarding/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -203,12 +204,6 @@ export function ParentSetupWizard({ parentName, initialFamilyName }: ParentSetup
             }))
         })
       });
-
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Could not complete setup wizard");
-      }
 
       setSuccess("Setup complete. Loading your full parent dashboard...");
       router.replace("/parent");

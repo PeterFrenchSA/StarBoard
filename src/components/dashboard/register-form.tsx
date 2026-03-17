@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { fetchJson } from "@/lib/fetch-json";
 
 export function RegisterForm() {
   const router = useRouter();
@@ -25,27 +26,25 @@ export function RegisterForm() {
 
           const formData = new FormData(event.currentTarget);
 
-          const response = await fetch("/api/auth/register-parent", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              familyName: formData.get("familyName"),
-              parentName: formData.get("parentName"),
-              email: formData.get("email"),
-              password: formData.get("password")
-            })
-          });
+          try {
+            await fetchJson("/api/auth/register-parent", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                familyName: formData.get("familyName"),
+                parentName: formData.get("parentName"),
+                email: formData.get("email"),
+                password: formData.get("password")
+              })
+            });
 
-          const result = await response.json();
-
-          if (!response.ok) {
-            setError(result.error ?? "Registration failed");
+            router.replace("/parent");
+            router.refresh();
+          } catch (registrationError) {
+            setError(registrationError instanceof Error ? registrationError.message : "Registration failed");
             setLoading(false);
             return;
           }
-
-          router.replace("/parent");
-          router.refresh();
         }}
       >
         <Input label="Family name" name="familyName" required />

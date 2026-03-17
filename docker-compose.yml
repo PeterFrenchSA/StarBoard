@@ -3,16 +3,14 @@ services:
     image: postgres:16-alpine
     container_name: starboard-db
     restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-starboard}
-      POSTGRES_USER: ${POSTGRES_USER:-starboard}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-starboard}
+    env_file:
+      - .env.docker
     ports:
       - "5432:5432"
     volumes:
       - starboard_db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-starboard} -d ${POSTGRES_DB:-starboard}"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -27,22 +25,18 @@ services:
       db:
         condition: service_healthy
     env_file:
-      - .env
-    environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://starboard:starboard@db:5432/starboard?schema=public}
-      DIRECT_URL: ${DIRECT_URL:-postgresql://starboard:starboard@db:5432/starboard?schema=public}
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_replace_me}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_replace_me}
-      STRIPE_PRICE_CURRENCY: ${STRIPE_PRICE_CURRENCY:-usd}
+      - .env.docker
     command: >
-      sh -c "npm install && npm run prisma:generate && npm run prisma:deploy && npm run dev -- -H 0.0.0.0 -p 3000"
+      sh -c "npm install && npm run prisma:generate && npm run prisma:deploy && npm run dev -- --webpack -H 0.0.0.0 -p 3000"
     ports:
       - "3000:3000"
       - "6006:6006"
     volumes:
       - ./:/app
       - starboard_node_modules:/app/node_modules
+      - starboard_next_cache:/app/.next
 
 volumes:
   starboard_db_data:
   starboard_node_modules:
+  starboard_next_cache:

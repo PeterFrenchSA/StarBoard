@@ -1,6 +1,7 @@
 import {
   BillingInterval,
   RedemptionStatus,
+  Prisma,
   Role,
   SupportTicketStatus,
   TaskCompletionStatus
@@ -10,6 +11,54 @@ import { calculateFamilyPlanPrice } from "@/lib/billing/pricing";
 import { db } from "@/lib/db";
 import { getChildPoints, getPointsByChildIds } from "@/lib/points/service";
 import { canTaskOccurToday, getOccurrenceDate } from "@/lib/tasks/recurrence";
+
+const childProfileSummarySelect = Prisma.validator<Prisma.ChildProfileSelect>()({
+  avatarEmoji: true,
+  colorTheme: true,
+  currentStreak: true,
+  longestStreak: true
+});
+
+const childUserSummarySelect = Prisma.validator<Prisma.UserSelect>()({
+  id: true,
+  displayName: true,
+  email: true,
+  childProfile: {
+    select: childProfileSummarySelect
+  }
+});
+
+const activityActorSelect = Prisma.validator<Prisma.UserSelect>()({
+  id: true,
+  displayName: true,
+  role: true
+});
+
+function toChildSummary(child: {
+  id: string;
+  displayName: string;
+  email: string;
+  childProfile: {
+    avatarEmoji: string;
+    colorTheme: string;
+    currentStreak: number;
+    longestStreak: number;
+  } | null;
+}) {
+  return {
+    id: child.id,
+    displayName: child.displayName,
+    email: child.email,
+    childProfile: child.childProfile
+      ? {
+          avatarEmoji: child.childProfile.avatarEmoji,
+          colorTheme: child.childProfile.colorTheme,
+          currentStreak: child.childProfile.currentStreak,
+          longestStreak: child.childProfile.longestStreak
+        }
+      : null
+  };
+}
 
 export async function getParentOverviewData(familyId: string) {
   const [family, parents, children, pendingTaskApprovals, pendingRedemptions, tasks, rewards, activity, supportTickets] =
@@ -47,9 +96,7 @@ export async function getParentOverviewData(familyId: string) {
       }),
       db.user.findMany({
         where: { familyId, role: Role.CHILD, isActive: true },
-        include: {
-          childProfile: true
-        },
+        select: childUserSummarySelect,
         orderBy: { displayName: "asc" }
       }),
       db.taskCompletion.findMany({
@@ -58,9 +105,23 @@ export async function getParentOverviewData(familyId: string) {
           status: TaskCompletionStatus.PENDING_APPROVAL
         },
         include: {
-          task: true,
+          task: {
+            select: {
+              id: true,
+              title: true,
+              points: true
+            }
+          },
           child: {
-            include: { childProfile: true }
+            select: {
+              id: true,
+              displayName: true,
+              childProfile: {
+                select: {
+                  avatarEmoji: true
+                }
+              }
+            }
           }
         },
         orderBy: { completedAt: "desc" },
@@ -72,9 +133,23 @@ export async function getParentOverviewData(familyId: string) {
           status: RedemptionStatus.REQUESTED
         },
         include: {
-          reward: true,
+          reward: {
+            select: {
+              id: true,
+              title: true,
+              iconEmoji: true
+            }
+          },
           child: {
-            include: { childProfile: true }
+            select: {
+              id: true,
+              displayName: true,
+              childProfile: {
+                select: {
+                  avatarEmoji: true
+                }
+              }
+            }
           }
         },
         orderBy: { requestedAt: "desc" },
@@ -84,7 +159,15 @@ export async function getParentOverviewData(familyId: string) {
         where: { familyId, isActive: true },
         include: {
           assignedChild: {
-            include: { childProfile: true }
+            select: {
+              id: true,
+              displayName: true,
+              childProfile: {
+                select: {
+                  avatarEmoji: true
+                }
+              }
+            }
           }
         },
         orderBy: { createdAt: "desc" },
@@ -98,8 +181,15 @@ export async function getParentOverviewData(familyId: string) {
       db.activityLog.findMany({
         where: { familyId },
         include: {
-          actor: true,
-          child: true
+          actor: {
+            select: activityActorSelect
+          },
+          child: {
+            select: {
+              id: true,
+              displayName: true
+            }
+          }
         },
         orderBy: { createdAt: "desc" },
         take: 50
@@ -149,7 +239,7 @@ export async function getParentOverviewData(familyId: string) {
   );
 
   const childrenWithStats = children.map((child) => ({
-    ...child,
+    ...toChildSummary(child),
     points: pointsByChild[child.id] ?? 0,
     pendingTasks: pendingTaskApprovals.filter((entry) => entry.childId === child.id).length,
     pendingRewards: pendingRedemptions.filter((entry) => entry.childId === child.id).length
@@ -195,12 +285,87 @@ export async function getParentOverviewData(familyId: string) {
   return {
     parents,
     children: childrenWithStats,
-    pendingTaskApprovals,
-    pendingRedemptions,
-    tasks,
-    rewards,
+    pendingTaskApprovals: pendingTaskApprovals.map((entry) => ({
+      id: entry.id,
+      completedAt: entry.completedAt,
+      task: {
+        title: entry.task.title,
+        points: entry.task.points
+      },
+      child: {
+        displayName: entry.child.displayName,
+        childProfile: entry.child.childProfile
+          ? {
+              avatarEmoji: entry.child.childProfile.avatarEmoji
+            }
+          : null
+      }
+    })),
+    pendingRedemptions: pendingRedemptions.map((entry) => ({
+      id: entry.id,
+      requestedAt: entry.requestedAt,
+      pointsCost: entry.pointsCost,
+      reward: {
+        title: entry.reward.title,
+        iconEmoji: entry.reward.iconEmoji
+      },
+      child: {
+        displayName: entry.child.displayName,
+        childProfile: entry.child.childProfile
+          ? {
+              avatarEmoji: entry.child.childProfile.avatarEmoji
+            }
+          : null
+      }
+    })),
+    tasks: tasks.map((task) => ({
+      id: task.id,
+      assignedChildId: task.assignedChildId,
+      title: task.title,
+      description: task.description,
+      points: task.points,
+      taskType: task.taskType,
+      recurrenceType: task.recurrenceType,
+      weekdays: task.weekdays,
+      deadlineAt: task.deadlineAt,
+      timerDurationMinutes: task.timerDurationMinutes,
+      requiresApproval: task.requiresApproval,
+      isActive: task.isActive,
+      assignedChild: {
+        id: task.assignedChild.id,
+        displayName: task.assignedChild.displayName,
+        childProfile: task.assignedChild.childProfile
+          ? {
+              avatarEmoji: task.assignedChild.childProfile.avatarEmoji
+            }
+          : null
+      }
+    })),
+    rewards: rewards.map((reward) => ({
+      id: reward.id,
+      title: reward.title,
+      description: reward.description,
+      cost: reward.cost,
+      iconEmoji: reward.iconEmoji,
+      isActive: reward.isActive
+    })),
     supportTickets,
-    activity,
+    activity: activity.map((entry) => ({
+      id: entry.id,
+      type: entry.type,
+      message: entry.message,
+      createdAt: entry.createdAt,
+      actor: entry.actor
+        ? {
+            displayName: entry.actor.displayName
+          }
+        : null,
+      child: entry.child
+        ? {
+            displayName: entry.child.displayName
+          }
+        : null
+    })),
     billing: {
       interval: family.billingInterval,
       status: family.subscriptionStatus,
@@ -235,9 +400,7 @@ export async function getChildOverviewData(familyId: string, childId: string) {
           familyId,
           role: Role.CHILD
         },
-        include: {
-          childProfile: true
-        }
+        select: childUserSummarySelect
       }),
       db.task.findMany({
         where: {
@@ -253,8 +416,16 @@ export async function getChildOverviewData(familyId: string, childId: string) {
           childId
         },
         include: {
-          task: true,
-          reviewedBy: true
+          task: {
+            select: {
+              id: true,
+              title: true,
+              taskType: true
+            }
+          },
+          reviewedBy: {
+            select: activityActorSelect
+          }
         },
         orderBy: { completedAt: "desc" },
         take: 50
@@ -271,7 +442,16 @@ export async function getChildOverviewData(familyId: string, childId: string) {
           familyId,
           childId
         },
-        include: { reward: true },
+        include: {
+          reward: {
+            select: {
+              id: true,
+              title: true,
+              iconEmoji: true,
+              cost: true
+            }
+          }
+        },
         orderBy: { requestedAt: "desc" },
         take: 20
       }),
@@ -281,14 +461,24 @@ export async function getChildOverviewData(familyId: string, childId: string) {
           childId
         },
         include: {
-          actor: true
+          actor: {
+            select: {
+              displayName: true
+            }
+          }
         },
         orderBy: { createdAt: "desc" },
         take: 30
       }),
       db.pointTransaction.findMany({
         where: { familyId, childId },
-        include: { actor: true },
+        include: {
+          actor: {
+            select: {
+              displayName: true
+            }
+          }
+        },
         orderBy: { createdAt: "desc" },
         take: 30
       }),
@@ -391,14 +581,53 @@ export async function getChildOverviewData(familyId: string, childId: string) {
   ];
 
   return {
-    child,
+    child: toChildSummary(child),
     tasks: tasksWithAvailability,
-    completions,
-    rewards: rewardsWithProgress,
-    rewardRequests,
-    activity,
+    completions: completions.map((completion) => ({
+      id: completion.id,
+      completedAt: completion.completedAt,
+      status: completion.status,
+      task: {
+        title: completion.task.title
+      }
+    })),
+    rewards: rewardsWithProgress.map((reward) => ({
+      id: reward.id,
+      title: reward.title,
+      description: reward.description,
+      cost: reward.cost,
+      iconEmoji: reward.iconEmoji,
+      affordable: reward.affordable,
+      progress: reward.progress
+    })),
+    rewardRequests: rewardRequests.map((request) => ({
+      id: request.id,
+      status: request.status,
+      requestedAt: request.requestedAt,
+      reward: {
+        id: request.reward.id,
+        title: request.reward.title,
+        iconEmoji: request.reward.iconEmoji,
+        cost: request.reward.cost
+      }
+    })),
+    activity: activity.map((entry) => ({
+      id: entry.id,
+      message: entry.message,
+      createdAt: entry.createdAt
+    })),
     points,
-    pointsHistory,
+    pointsHistory: pointsHistory.map((entry) => ({
+      id: entry.id,
+      amount: entry.amount,
+      note: entry.note,
+      createdAt: entry.createdAt,
+      actor: entry.actor
+        ? {
+            displayName: entry.actor.displayName
+          }
+        : null
+    })),
     badges: badgeList
   };
 }

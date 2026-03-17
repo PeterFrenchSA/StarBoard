@@ -24,9 +24,6 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force && npm run prisma:seed"
   },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
-  },
   "dependencies": {
     "@prisma/client": "^6.8.0",
     "bcryptjs": "^2.4.3",
@@ -43,7 +40,7 @@
   "devDependencies": {
     "@playwright/test": "^1.56.1",
     "@storybook/addon-a11y": "^10.2.17",
-    "@storybook/nextjs": "^10.2.17",
+    "@storybook/nextjs": "^7.0.14",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^24.7.2",
     "@types/react": "^19.1.16",

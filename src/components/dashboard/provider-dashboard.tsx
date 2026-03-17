@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Toast } from "@/components/ui/toast";
 import { centsToCurrencyString } from "@/lib/billing/pricing";
+import { fetchJson } from "@/lib/fetch-json";
 
 type TicketStatus = "OPEN" | "IN_PROGRESS" | "WAITING_ON_PARENT" | "RESOLVED" | "CLOSED";
 type TicketPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
@@ -61,21 +62,6 @@ interface ProviderOverview {
     featureRequestsCount: number;
     estimatedMrrCents: number;
   };
-}
-
-async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, {
-    credentials: "include",
-    ...init
-  });
-
-  const payload = await response.json();
-
-  if (!response.ok) {
-    throw new Error(payload.error ?? "Request failed");
-  }
-
-  return payload.data as T;
 }
 
 function formatStatus(status: string): string {
