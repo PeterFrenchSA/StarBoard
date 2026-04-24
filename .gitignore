@@ -6,6 +6,7 @@ playwright-report
 test-results
 *.log
 *.tsbuildinfo
+.playwright-e2e-state.json
 .env
 .env.docker
 .env.local
@@ -13,3 +14,5 @@ test-results
 .DS_Store
 npm-debug.log*
 prisma/dev.db
+
+*storybook.log

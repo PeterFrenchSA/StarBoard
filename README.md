@@ -250,10 +250,18 @@ docker compose exec app npm run prisma:deploy
 docker compose exec app npm run prisma:seed
 ```
 
-E2E smoke test (app must already be running):
+E2E smoke test:
 
 ```bash
 npm run test:e2e
+```
+
+This now starts the Docker app stack automatically if `http://127.0.0.1:3000/login` is not already reachable, waits for the login page, and then runs Playwright.
+
+By default the Docker stack stays running after the test for faster local reuse. If you want Playwright to stop the stack it started, run:
+
+```bash
+PLAYWRIGHT_STOP_STACK=1 npm run test:e2e
 ```
 
 ## Storybook (UI Wireframes and Design Iteration)

@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/nextjs";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { ParentDashboard } from "@/components/dashboard/parent-dashboard";
 import {
   parentOverviewFixture,

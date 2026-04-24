@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/nextjs";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { ChildDashboard } from "@/components/dashboard/child-dashboard";
 import { type ChildThemeValue } from "@/lib/themes/child-themes";
 import {

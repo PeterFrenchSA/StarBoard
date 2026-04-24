@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/nextjs";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { ProviderDashboard } from "@/components/dashboard/provider-dashboard";
 import { providerOverviewFixture } from "@/components/dashboard/storybook/fixtures";
 import { MockApiProvider } from "@/components/dashboard/storybook/mock-api";
