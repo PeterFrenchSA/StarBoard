@@ -13,13 +13,13 @@ test("anonymous routes and voice endpoints require authentication", async ({ req
   }
 });
 
-test("family workflows preserve points and permissions under concurrent requests", async ({ browser, baseURL }) => {
+test("family workflows preserve points and permissions under concurrent requests", async ({ browser, baseURL, ignoreHTTPSErrors }) => {
   test.skip(process.env.PLAYWRIGHT_ALLOW_MUTATIONS !== "1", "Use a disposable database and set PLAYWRIGHT_ALLOW_MUTATIONS=1");
   test.setTimeout(120_000);
   const tag = randomUUID().slice(0, 8);
   const password = "AuditPass123!";
   const contexts = await Promise.all(Array.from({ length: 5 }, () => browser.newContext({
-    baseURL, extraHTTPHeaders: { Origin: baseURL! }
+    baseURL, ignoreHTTPSErrors, extraHTTPHeaders: { Origin: baseURL! }
   })));
   const [parentContext, childContext, siblingContext, outsiderContext, coparentContext] = contexts;
   const parent = parentContext.request;
@@ -150,7 +150,7 @@ test("family workflows preserve points and permissions under concurrent requests
     expect((await outsider.post(`/api/parent/support/tickets/${ticket.id}/messages`, { data: { body: "Not my family" } })).status()).toBe(404);
 
     if (process.env.PLAYWRIGHT_PROVIDER_EMAIL && process.env.PLAYWRIGHT_PROVIDER_PASSWORD) {
-      const providerContext = await browser.newContext({ baseURL, extraHTTPHeaders: { Origin: baseURL! } });
+      const providerContext = await browser.newContext({ baseURL, ignoreHTTPSErrors, extraHTTPHeaders: { Origin: baseURL! } });
       contexts.push(providerContext);
       const provider = providerContext.request;
       await data(await provider.post("/api/auth/login", { data: {

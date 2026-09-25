@@ -597,3 +597,8 @@ make backup ENV_FILE=.env.production
 - Install prompt support in app shell (`beforeinstallprompt`)
 - Maskable app icon included for Android launchers
 - Offline fallback route: `/offline`
+
+## Production hosting
+
+The production branch is `main`, deployed through Coolify at https://starboard.virdict.com.
+See [Coolify deployment and recovery](docs/COOLIFY.md) for runtime secrets, safe first-admin setup, testing, updates and backups. Do not run the demonstration seed in production.

@@ -6,6 +6,7 @@ export default defineConfig({
   globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
   use: {
+    ignoreHTTPSErrors: process.env.PLAYWRIGHT_LOCAL_TLS === "1",
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000"
   }
 });
