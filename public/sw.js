@@ -1,5 +1,5 @@
-const CACHE_VERSION = "starboard-v2";
-const SHELL_URLS = ["/", "/login", "/register", "/offline", "/icons/icon-192.svg", "/icons/icon-maskable.svg"];
+const CACHE_VERSION = "starboard-v3";
+const SHELL_URLS = ["/offline", "/icons/icon-192.svg", "/icons/icon-maskable.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(SHELL_URLS)));
@@ -11,7 +11,7 @@ self.addEventListener("activate", (event) => {
     caches.keys().then((keys) =>
       Promise.all(
         keys
-          .filter((key) => key !== CACHE_VERSION)
+          .filter((key) => key.startsWith("starboard-") && key !== CACHE_VERSION)
           .map((key) => caches.delete(key))
       )
     )
@@ -24,21 +24,21 @@ function isApiRequest(request) {
   return url.pathname.startsWith("/api/");
 }
 
-async function staleWhileRevalidate(request) {
+async function staleWhileRevalidate(request, event) {
   const cache = await caches.open(CACHE_VERSION);
   const cached = await cache.match(request);
 
   const networkFetch = fetch(request)
-    .then((response) => {
-      if (response.ok && request.method === "GET") {
-        cache.put(request, response.clone());
+    .then(async (response) => {
+      if (response.ok && !response.redirected) {
+        await cache.put(request, response.clone());
       }
       return response;
     })
     .catch(() => null);
 
   if (cached) {
-    void networkFetch;
+    event.waitUntil(networkFetch);
     return cached;
   }
 
@@ -48,7 +48,7 @@ async function staleWhileRevalidate(request) {
     return network;
   }
 
-  return caches.match("/offline");
+  return Response.error();
 }
 
 self.addEventListener("fetch", (event) => {
@@ -74,5 +74,8 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  event.respondWith(staleWhileRevalidate(request));
+  // RSC/prefetch responses may contain family data. Cache only public assets.
+  if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/")) {
+    event.respondWith(staleWhileRevalidate(request, event));
+  }
 });

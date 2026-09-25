@@ -44,7 +44,7 @@ describe("GET /api/provider/feature-requests/export", () => {
         id: "ticket_1",
         family: { name: "Skywalkers" },
         subject: "Need Apple Watch widget",
-        description: "Would love quick actions from watch.",
+        description: '=HYPERLINK("https://example.com")',
         status: "OPEN",
         priority: "HIGH",
         category: "mobile",
@@ -63,5 +63,6 @@ describe("GET /api/provider/feature-requests/export", () => {
     expect(response.headers.get("content-type")).toContain("text/csv");
     expect(csv).toContain("ticket_id,family_name,subject");
     expect(csv).toContain("Need Apple Watch widget");
+    expect(csv).toContain('"\'=HYPERLINK(""https://example.com"")"');
   });
 });

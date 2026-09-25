@@ -58,6 +58,20 @@ function runDockerCompose(args: string[]) {
   });
 }
 
+function assertDockerIsAvailable() {
+  try {
+    execFileSync("docker", ["info"], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: "ignore"
+    });
+  } catch {
+    throw new Error(
+      "[playwright] Docker is not running. Start Docker Desktop, then rerun `npm run test:e2e`."
+    );
+  }
+}
+
 async function writeState(state: E2eState) {
   await writeFile(STATE_FILE, JSON.stringify(state, null, 2));
 }
@@ -72,6 +86,7 @@ export default async function globalSetup(config: FullConfig) {
   }
 
   console.log(`[playwright] App is down. Starting Docker stack for ${baseURL}`);
+  assertDockerIsAvailable();
   runDockerCompose(["up", "-d", "--build"]);
 
   const ready = await waitForApp(baseURL, STARTUP_TIMEOUT_MS);

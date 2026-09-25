@@ -1,8 +1,14 @@
 import { differenceInCalendarDays, startOfDay } from "date-fns";
 import { db } from "@/lib/db";
 
-export async function updateChildStreak(childId: string, completionDate: Date): Promise<void> {
-  const profile = await db.childProfile.findUnique({
+type ChildProfileClient = Pick<typeof db, "childProfile">;
+
+export async function updateChildStreak(
+  childId: string,
+  completionDate: Date,
+  client: ChildProfileClient = db
+): Promise<void> {
+  const profile = await client.childProfile.findUnique({
     where: { userId: childId }
   });
 
@@ -13,7 +19,7 @@ export async function updateChildStreak(childId: string, completionDate: Date): 
   const completionDay = startOfDay(completionDate);
 
   if (!profile.lastStreakDate) {
-    await db.childProfile.update({
+    await client.childProfile.update({
       where: { userId: childId },
       data: {
         currentStreak: 1,
@@ -33,7 +39,7 @@ export async function updateChildStreak(childId: string, completionDate: Date): 
 
   const currentStreak = diffDays === 1 ? profile.currentStreak + 1 : 1;
 
-  await db.childProfile.update({
+  await client.childProfile.update({
     where: { userId: childId },
     data: {
       currentStreak,

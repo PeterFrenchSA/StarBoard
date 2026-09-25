@@ -1,6 +1,8 @@
 import { PointTransactionType } from "@prisma/client";
 import { db } from "@/lib/db";
 
+type PointTransactionClient = Pick<typeof db, "pointTransaction">;
+
 interface CreatePointTransactionInput {
   familyId: string;
   childId: string;
@@ -12,8 +14,11 @@ interface CreatePointTransactionInput {
   referenceId?: string;
 }
 
-export async function createPointTransaction(input: CreatePointTransactionInput) {
-  return db.pointTransaction.create({
+export async function createPointTransaction(
+  input: CreatePointTransactionInput,
+  client: PointTransactionClient = db
+) {
+  return client.pointTransaction.create({
     data: {
       familyId: input.familyId,
       childId: input.childId,
@@ -27,8 +32,12 @@ export async function createPointTransaction(input: CreatePointTransactionInput)
   });
 }
 
-export async function getChildPoints(familyId: string, childId: string): Promise<number> {
-  const result = await db.pointTransaction.aggregate({
+export async function getChildPoints(
+  familyId: string,
+  childId: string,
+  client: PointTransactionClient = db
+): Promise<number> {
+  const result = await client.pointTransaction.aggregate({
     where: { familyId, childId },
     _sum: { amount: true }
   });

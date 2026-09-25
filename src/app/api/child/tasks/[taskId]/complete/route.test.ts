@@ -1,4 +1,4 @@
-import { TaskCompletionStatus } from "@prisma/client";
+import { Prisma, TaskCompletionStatus } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,10 +12,14 @@ const getOccurrenceDateMock = vi.hoisted(() => vi.fn());
 
 const txMock = vi.hoisted(() => ({
   taskCompletion: {
-    create: vi.fn()
+    create: vi.fn(),
+    findFirst: vi.fn()
   },
   taskTimerSession: {
-    update: vi.fn()
+    updateMany: vi.fn()
+  },
+  activityLog: {
+    create: vi.fn()
   }
 }));
 
@@ -85,7 +89,8 @@ describe("POST /api/child/tasks/[taskId]/complete", () => {
     canTaskOccurTodayMock.mockReturnValue(true);
     getOccurrenceDateMock.mockReturnValue(fixedOccurrence);
     dbMock.$transaction.mockImplementation(async (callback: (tx: typeof txMock) => Promise<unknown>) => callback(txMock));
-    dbMock.activityLog.create.mockResolvedValue({ id: "activity_1" });
+    txMock.taskCompletion.findFirst.mockResolvedValue(null);
+    txMock.activityLog.create.mockResolvedValue({ id: "activity_1" });
   });
 
   it("blocks completion when timer is required but not started", async () => {
@@ -158,7 +163,7 @@ describe("POST /api/child/tasks/[taskId]/complete", () => {
       status: TaskCompletionStatus.PENDING_APPROVAL,
       completedAt: new Date()
     });
-    txMock.taskTimerSession.update.mockResolvedValue({ id: "timer_1" });
+    txMock.taskTimerSession.updateMany.mockResolvedValue({ count: 1 });
 
     const response = await POST(
       new NextRequest("http://localhost/api/child/tasks/task_2/complete", {
@@ -173,9 +178,41 @@ describe("POST /api/child/tasks/[taskId]/complete", () => {
     }
 
     expect(response.status).toBe(201);
-    expect(txMock.taskTimerSession.update).toHaveBeenCalledWith({
-      where: { id: "timer_1" },
+    expect(txMock.taskTimerSession.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ id: "timer_1", completedAt: null }),
       data: { completedAt: expect.any(Date) }
     });
+  });
+
+  it("keeps auto-approved points and activity in the same transaction", async () => {
+    dbMock.task.findFirst.mockResolvedValue({
+      id: "task_auto", title: "Make the bed", familyId: "fam_1", points: 5,
+      requiresApproval: false, taskType: "RECURRING", deadlineAt: null, timerDurationMinutes: null
+    });
+    const completedAt = new Date();
+    txMock.taskCompletion.create.mockResolvedValue({ id: "completion_auto", completedAt });
+    const response = await POST(new NextRequest("http://localhost/api/child/tasks/task_auto/complete", {
+      method: "POST", body: "{}"
+    }), { params: Promise.resolve({ taskId: "task_auto" }) });
+    expect(response?.status).toBe(201);
+    expect(createPointTransactionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 5, referenceId: "completion_auto" }), txMock
+    );
+    expect(updateChildStreakMock).toHaveBeenCalledWith("child_1", completedAt, txMock);
+    expect(txMock.activityLog.create).toHaveBeenCalledOnce();
+  });
+
+  it("returns a conflict for concurrent duplicate submissions", async () => {
+    dbMock.task.findFirst.mockResolvedValue({
+      id: "task_auto", familyId: "fam_1", requiresApproval: false, taskType: "RECURRING"
+    });
+    dbMock.$transaction.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError("duplicate", {
+      code: "P2002", clientVersion: "test"
+    }));
+    const response = await POST(new NextRequest("http://localhost/api/child/tasks/task_auto/complete", {
+      method: "POST", body: "{}"
+    }), { params: Promise.resolve({ taskId: "task_auto" }) });
+    expect(response?.status).toBe(409);
+    expect(createPointTransactionMock).not.toHaveBeenCalled();
   });
 });

@@ -69,7 +69,7 @@ wait_for_db() {
 wait_for_app() {
   local retries="${1:-45}"
   local sleep_seconds="${2:-2}"
-  local health_url="${APP_HEALTHCHECK_URL:-http://127.0.0.1:${APP_PORT:-3000}/api/auth/me}"
+  local health_url="${APP_HEALTHCHECK_URL:-http://127.0.0.1:${APP_PORT:-3000}/api/health}"
   local i
   local code
 
@@ -77,8 +77,8 @@ wait_for_app() {
   log "Waiting for app health at ${health_url}..."
 
   for i in $(seq 1 "$retries"); do
-    code="$(curl -sS -o /dev/null -w "%{http_code}" "$health_url" || true)"
-    if [ "$code" = "200" ] || [ "$code" = "204" ] || [ "$code" = "401" ] || [ "$code" = "403" ]; then
+    code="$(curl --connect-timeout 3 --max-time 5 -sS -o /dev/null -w "%{http_code}" "$health_url" || true)"
+    if [ "$code" = "200" ] || [ "$code" = "204" ]; then
       log "App health check passed with status ${code}."
       return 0
     fi

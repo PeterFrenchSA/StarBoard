@@ -180,6 +180,11 @@ main {
     inset 0 0 0 1px rgba(255, 255, 255, 0.25);
 }
 
+.cosmic-shell :is(button, a, [tabindex]):focus-visible {
+  outline: 3px solid #a5f3fc;
+  outline-offset: 3px;
+}
+
 .cosmic-mini-stat {
   border-radius: 14px;
   border: 1px solid rgba(165, 198, 255, 0.55);
@@ -190,19 +195,27 @@ main {
 }
 
 .cosmic-galaxy-ring {
+  position: relative;
   width: 200px;
   height: 200px;
   border-radius: 999px;
   border: 1px solid rgba(160, 189, 255, 0.65);
-  background:
-    conic-gradient(from 210deg, #7f64ff, #52cbff, #8f7bff, #7f64ff);
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.cosmic-galaxy-ring::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(from 210deg, #7f64ff, #52cbff, #8f7bff, #7f64ff);
   animation: cosmicRotate 9s linear infinite;
 }
 
 .cosmic-galaxy-core {
+  position: relative;
   width: 150px;
   height: 150px;
   border-radius: 999px;
@@ -307,5 +320,43 @@ main {
 
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 639px) {
+  .cosmic-theme-option {
+    min-height: 76px;
+  }
+
+  .cosmic-galaxy-ring {
+    width: 104px;
+    height: 104px;
+    flex-shrink: 0;
+  }
+
+  .cosmic-galaxy-core {
+    width: 80px;
+    height: 80px;
+    font-size: 1.5rem;
+  }
+
+  .cosmic-stat-card {
+    gap: 8px;
+    padding: 12px;
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sparkle::after,
+  .animate-points-flash,
+  .animate-toast-in,
+  .cosmic-galaxy-ring::before {
+    animation: none;
+  }
+
+  .cosmic-theme-option,
+  .cosmic-progress-fill {
+    transition: none;
   }
 }

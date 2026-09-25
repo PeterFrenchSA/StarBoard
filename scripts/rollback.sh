@@ -15,7 +15,18 @@ resolve_target_commit() {
     return
   fi
 
-  git rev-parse --verify HEAD^ 2>/dev/null || die "No previous commit found for rollback"
+  local current target
+  current="$(git rev-parse HEAD)"
+  if [ -f "${APP_DIR}/deployments.log" ]; then
+    while IFS= read -r target; do
+      target="$(git rev-parse --verify "${target}^{commit}" 2>/dev/null)" || continue
+      if [ "$target" != "$current" ]; then
+        printf "%s" "$target"
+        return
+      fi
+    done < <(awk '{ for (i=1; i<=NF; i++) if ($i ~ /^commit=/) { sub(/^commit=/, "", $i); commits[++n]=$i } } END { for (i=n; i>0; i--) print commits[i] }' "${APP_DIR}/deployments.log")
+  fi
+  die "No previous successful deployment found. Set ROLLBACK_COMMIT explicitly."
 }
 
 main() {
@@ -40,13 +51,8 @@ main() {
 
   log "Rolling back to commit: ${target_commit}"
 
-  if git show-ref --verify --quiet "refs/heads/$branch"; then
-    git checkout "$branch" >/dev/null
-  else
-    git checkout -b "$branch" "$GIT_REMOTE/$branch" >/dev/null
-  fi
-
-  git reset --hard "$target_commit"
+  [ -z "$(git status --porcelain --untracked-files=no)" ] || die "Commit or stash tracked changes before rollback."
+  git checkout --detach "$target_commit" >/dev/null
 
   log "Rebuilding containers for rollback commit"
   compose build app
@@ -59,6 +65,8 @@ main() {
   log "Starting app container"
   compose up -d --no-deps app
   wait_for_app
+
+  record_deploy "$(git rev-parse HEAD)" "rollback-${branch}"
 
   log "Rollback complete"
   log "Active commit: $(git rev-parse --short HEAD)"

@@ -19,9 +19,15 @@ main() {
   local file="${backup_dir}/starboard-${timestamp}.sql.gz"
 
   mkdir -p "$backup_dir"
+  umask 077
+  local partial="${file}.partial"
 
   log "Creating PostgreSQL backup: ${file}"
-  compose exec -T db pg_dump -U "${POSTGRES_USER:-starboard}" -d "${POSTGRES_DB:-starboard}" | gzip > "$file"
+  if ! compose exec -T db pg_dump -U "${POSTGRES_USER:-starboard}" -d "${POSTGRES_DB:-starboard}" | gzip > "$partial"; then
+    rm -f "$partial"
+    die "Backup failed; no completed backup was created."
+  fi
+  mv "$partial" "$file"
 
   log "Backup complete"
 

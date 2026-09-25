@@ -228,6 +228,7 @@ describe("dashboard serializers", () => {
         assignedChildId: "child_1",
         title: "Read for 20 minutes",
         description: "Read any book",
+        completions: [{ occurrenceDate: now, status: "APPROVED" }],
         points: 15,
         taskType: "RECURRING",
         recurrenceType: "DAILY",
@@ -313,6 +314,8 @@ describe("dashboard serializers", () => {
     const result = await getChildOverviewData("fam_1", "child_1");
 
     expect(result.child).not.toHaveProperty("passwordHash");
+    expect(result.tasks[0].completed).toBe(true);
+    expect(result.tasks[0]).not.toHaveProperty("completions");
     expect(result.child).not.toHaveProperty("familyId");
     expect(result.completions[0].task).toEqual({
       title: "Read for 20 minutes"
@@ -327,5 +330,16 @@ describe("dashboard serializers", () => {
       iconEmoji: "📺",
       cost: 45
     });
+
+    dbMock.task.findMany.mockResolvedValue([{
+      id: "old-task", title: "An old one-off", taskType: "ONE_OFF", recurrenceType: "NONE",
+      timerDurationMinutes: null, deadlineAt: null,
+      completions: [{ occurrenceDate: new Date("2025-01-01"), status: "APPROVED" }]
+    }]);
+    dbMock.taskCompletion.findMany.mockResolvedValue([]);
+    const withoutRecentHistory = await getChildOverviewData("fam_1", "child_1");
+    expect(withoutRecentHistory.completions).toHaveLength(0);
+    expect(withoutRecentHistory.tasks[0].completed).toBe(true);
+    expect(withoutRecentHistory.tasks[0].availableToday).toBe(false);
   });
 });

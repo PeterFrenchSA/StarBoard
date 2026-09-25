@@ -4,6 +4,7 @@ storybook-static
 coverage
 playwright-report
 test-results
+backups/
 *.log
 *.tsbuildinfo
 .playwright-e2e-state.json

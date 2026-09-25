@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Clock3, Flame, LifeBuoy, ListChecks, Star, Users } from "lucide-react";
 import { AvatarPicker } from "@/components/dashboard/avatar-picker";
@@ -185,6 +186,7 @@ interface ParentDashboardProps {
 }
 
 export function ParentDashboard({ parentName, mode = "main" }: ParentDashboardProps) {
+  const router = useRouter();
   const [data, setData] = useState<ParentOverview | null>(null);
   const [voiceTokens, setVoiceTokens] = useState<VoiceTokenRow[]>([]);
   const [revealedVoiceToken, setRevealedVoiceToken] = useState<string | null>(null);
@@ -442,7 +444,7 @@ export function ParentDashboard({ parentName, mode = "main" }: ParentDashboardPr
               <Button type="button" variant="ghost" className="h-9" onClick={() => scrollToSection("reward-tools")}>
                 Rewards
               </Button>
-              <Button type="button" variant="ghost" className="h-9" onClick={() => window.location.assign("/parent/approvals")}>
+              <Button type="button" variant="ghost" className="h-9" onClick={() => router.push("/parent/approvals")}>
                 Approvals
               </Button>
             </div>
@@ -458,33 +460,33 @@ export function ParentDashboard({ parentName, mode = "main" }: ParentDashboardPr
             <p className="text-3xl font-black">{data.stats.childrenCount}</p>
           </Card>
           <Card className="relative overflow-hidden border-white/70 bg-white/90 p-4">
-            <ListChecks className="absolute right-3 top-3 h-5 w-5 text-board-mint" />
+            <ListChecks className="absolute right-3 top-3 h-5 w-5 text-teal-700" />
             <p className="text-xs uppercase tracking-wide text-slate-500">Tasks</p>
             <p className="text-3xl font-black">{data.stats.activeTasksCount}</p>
           </Card>
           <Card className="relative overflow-hidden border-white/70 bg-white/90 p-4">
-            <Star className="absolute right-3 top-3 h-5 w-5 text-board-sun" />
+            <Star className="absolute right-3 top-3 h-5 w-5 text-amber-800" />
             <p className="text-xs uppercase tracking-wide text-slate-500">Points</p>
             <p className="text-3xl font-black">{data.stats.totalPositivePointsThisMonth}</p>
           </Card>
           <Card className="relative overflow-hidden border-white/70 bg-white/90 p-4">
-            <Clock3 className="absolute right-3 top-3 h-5 w-5 text-board-coral" />
+            <Clock3 className="absolute right-3 top-3 h-5 w-5 text-rose-700" />
             <p className="text-xs uppercase tracking-wide text-slate-500">Pending</p>
             <button
               type="button"
-              className="text-left text-3xl font-black text-board-coral underline-offset-4 hover:underline"
-              onClick={() => window.location.assign("/parent/approvals")}
+              className="text-left text-3xl font-black text-rose-700 underline-offset-4 hover:underline"
+              onClick={() => router.push("/parent/approvals")}
             >
               {data.stats.pendingApprovalsCount}
             </button>
           </Card>
           <Card className="relative overflow-hidden border-white/70 bg-white/90 p-4">
-            <LifeBuoy className="absolute right-3 top-3 h-5 w-5 text-board-sky" />
+            <LifeBuoy className="absolute right-3 top-3 h-5 w-5 text-sky-700" />
             <p className="text-xs uppercase tracking-wide text-slate-500">Support</p>
             <button
               type="button"
-              className="text-left text-3xl font-black text-board-sky underline-offset-4 hover:underline"
-              onClick={() => window.location.assign("/parent/support")}
+              className="text-left text-3xl font-black text-sky-700 underline-offset-4 hover:underline"
+              onClick={() => router.push("/parent/support")}
             >
               {data.stats.openSupportTicketsCount}
             </button>
@@ -502,19 +504,19 @@ export function ParentDashboard({ parentName, mode = "main" }: ParentDashboardPr
                 <p>Total</p>
               </div>
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <p className="font-black text-lg text-board-mint">{taskSummary.recurring}</p>
+                <p className="font-black text-lg text-teal-700">{taskSummary.recurring}</p>
                 <p>Recurring</p>
               </div>
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <p className="font-black text-lg text-board-sun">{taskSummary.oneOff}</p>
+                <p className="font-black text-lg text-amber-800">{taskSummary.oneOff}</p>
                 <p>One-off</p>
               </div>
               <button
                 type="button"
                 className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-left transition hover:bg-slate-100"
-                onClick={() => window.location.assign("/parent/approvals")}
+                onClick={() => router.push("/parent/approvals")}
               >
-                <p className="font-black text-lg text-board-coral">{taskSummary.requiresApproval}</p>
+                <p className="font-black text-lg text-rose-700">{taskSummary.requiresApproval}</p>
                 <p>Need review</p>
               </button>
             </div>
@@ -528,15 +530,15 @@ export function ParentDashboard({ parentName, mode = "main" }: ParentDashboardPr
                 <p>Total</p>
               </div>
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <p className="font-black text-lg text-board-mint">{rewardSummary.active}</p>
+                <p className="font-black text-lg text-teal-700">{rewardSummary.active}</p>
                 <p>Active</p>
               </div>
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <p className="font-black text-lg text-board-sun">{rewardSummary.averageCost}</p>
+                <p className="font-black text-lg text-amber-800">{rewardSummary.averageCost}</p>
                 <p>Avg</p>
               </div>
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <p className="font-black text-lg text-board-coral">{rewardSummary.maxCost}</p>
+                <p className="font-black text-lg text-rose-700">{rewardSummary.maxCost}</p>
                 <p>Max</p>
               </div>
             </div>
@@ -575,22 +577,22 @@ export function ParentDashboard({ parentName, mode = "main" }: ParentDashboardPr
 
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="rounded-xl border border-slate-100 bg-slate-50 p-2">
-                    <Star className="mx-auto mb-1 h-4 w-4 text-board-mint" />
-                    <p className="font-black text-lg text-board-mint">{child.points}</p>
+                    <Star className="mx-auto mb-1 h-4 w-4 text-teal-700" />
+                    <p className="font-black text-lg text-teal-700">{child.points}</p>
                     <p>Points</p>
                   </div>
                   <div className="rounded-xl border border-slate-100 bg-slate-50 p-2">
-                    <Flame className="mx-auto mb-1 h-4 w-4 text-board-sun" />
-                    <p className="font-black text-lg text-board-sun">{child.childProfile?.currentStreak ?? 0}</p>
+                    <Flame className="mx-auto mb-1 h-4 w-4 text-amber-800" />
+                    <p className="font-black text-lg text-amber-800">{child.childProfile?.currentStreak ?? 0}</p>
                     <p>Streak</p>
                   </div>
                   <button
                     type="button"
                     className="rounded-xl border border-slate-100 bg-slate-50 p-2 transition hover:bg-slate-100"
-                    onClick={() => window.location.assign("/parent/approvals")}
+                    onClick={() => router.push("/parent/approvals")}
                   >
-                    <Clock3 className="mx-auto mb-1 h-4 w-4 text-board-coral" />
-                    <p className="font-black text-lg text-board-coral">{child.pendingTasks + child.pendingRewards}</p>
+                    <Clock3 className="mx-auto mb-1 h-4 w-4 text-rose-700" />
+                    <p className="font-black text-lg text-rose-700">{child.pendingTasks + child.pendingRewards}</p>
                     <p>Pending</p>
                   </button>
                 </div>
@@ -1255,7 +1257,7 @@ export function ParentDashboard({ parentName, mode = "main" }: ParentDashboardPr
             </p>
             <p>
               Stripe linked:{" "}
-              <span className={`font-semibold ${data.billing.stripeCustomerLinked ? "text-board-mint" : "text-board-coral"}`}>
+              <span className={`font-semibold ${data.billing.stripeCustomerLinked ? "text-teal-700" : "text-rose-700"}`}>
                 {data.billing.stripeCustomerLinked ? "Yes" : "Not yet"}
               </span>
             </p>
@@ -1660,7 +1662,7 @@ export function ParentDashboard({ parentName, mode = "main" }: ParentDashboardPr
         <section className="grid gap-4 lg:grid-cols-2">
         <Card>
           <h2 className="mb-3 font-[var(--font-display)] text-2xl font-black">Active Tasks & Rewards</h2>
-          <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
+          <div tabIndex={0} role="region" aria-label="Recent activity" className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
             {data.tasks.length === 0 ? (
               <p className="text-sm text-slate-500">No tasks available yet.</p>
             ) : (
@@ -1672,7 +1674,7 @@ export function ParentDashboard({ parentName, mode = "main" }: ParentDashboardPr
                     {task.taskType.replace("_", " ")} / {task.recurrenceType}
                   </p>
                   {task.deadlineAt ? (
-                    <p className="mt-1 text-xs font-semibold text-board-coral">
+                    <p className="mt-1 text-xs font-semibold text-rose-700">
                       Deadline: {new Date(task.deadlineAt).toLocaleString()}
                     </p>
                   ) : null}

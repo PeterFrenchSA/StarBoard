@@ -4,7 +4,9 @@ import { db } from "@/lib/db";
 
 function csvEscape(value: string | null | undefined): string {
   const input = value ?? "";
-  const escaped = input.replace(/"/g, '""');
+  // Quoting alone does not prevent spreadsheet programs from executing formulas.
+  const safe = /^[\s]*[=+@-]|^[\t\r\n]/.test(input) ? `'${input}` : input;
+  const escaped = safe.replace(/"/g, '""');
   return `"${escaped}"`;
 }
 

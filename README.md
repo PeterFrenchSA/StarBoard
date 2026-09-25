@@ -10,7 +10,7 @@ StarBoard is a self-hostable family star chart and rewards app built with Next.j
 - Prisma ORM
 - Email/password auth with secure hashing and HttpOnly JWT session cookie
 - Docker + Docker Compose (local and Ubuntu VPS production)
-- Vitest unit tests + Playwright e2e smoke test
+- Vitest unit/API tests + Storybook browser tests + Playwright workflow tests
 
 ## MVP Features
 
@@ -257,6 +257,18 @@ npm run test:e2e
 ```
 
 This now starts the Docker app stack automatically if `http://127.0.0.1:3000/login` is not already reachable, waits for the login page, and then runs Playwright.
+
+The extended workflow test creates new families and test data. Run it only against a disposable/local test database:
+
+```bash
+PLAYWRIGHT_ALLOW_MUTATIONS=1 PLAYWRIGHT_BASE_URL=http://localhost:3000 npm run test:e2e
+```
+
+It covers onboarding, multi-parent login, family isolation, tasks/timers, concurrent approvals, reward balances, voice token revocation, support, and dashboard rendering. Test accounts use unique `@example.test` emails and remain in that test database. Optional `PLAYWRIGHT_PROVIDER_EMAIL` / `PLAYWRIGHT_PROVIDER_PASSWORD` enable provider support checks. `PLAYWRIGHT_WEBHOOK_SECRET`, matching the test app's `STRIPE_WEBHOOK_SECRET`, enables locally signed duplicate-webhook checks without contacting Stripe. Never use production credentials for these tests.
+
+For the current code review, fixes, and remaining release risks, see [the audit report](docs/code-review-2026-09-20.md).
+
+Paid launch still needs subscription repricing when child counts change, pending-checkout protection, and out-of-order Stripe event reconciliation. The audit improvements do not replace that billing lifecycle work.
 
 By default the Docker stack stays running after the test for faster local reuse. If you want Playwright to stop the stack it started, run:
 
@@ -505,11 +517,15 @@ ENV_FILE=.env.production DEPLOY_BRANCH=main ./update-app.sh
 ```
 
 `update-app.sh` is a safe update wrapper around deploy flow with clear success/failure output.
-It replaces only the app container (`up -d --no-deps app`) for near-zero downtime within Docker Compose constraints.
+It builds before replacing the app container (`up -d --no-deps app`). A single app container still has a short interruption while the replacement starts; this is not zero-downtime deployment.
+
+Production publishes the app on `127.0.0.1` for the supplied host Nginx proxy. If you use a containerized reverse proxy, connect it to the Compose network instead. The Nginx example replaces incoming `X-Forwarded-For` headers so clients cannot choose their rate-limit identity. Configure trusted proxy IP ranges before using Cloudflare real-IP headers.
+
+App health now checks database/schema access at `/api/health`. Change an existing `APP_HEALTHCHECK_URL` ending in `/api/auth/me` to `/api/health`; otherwise the deploy script will reject the old unauthenticated response. Environment files are excluded from Docker builds and supplied at runtime.
 
 ### 6. Rollback
 
-Rollback to previous commit:
+Rollback to the previous successful deployment recorded in `deployments.log`:
 
 ```bash
 cd /opt/starboard
@@ -522,6 +538,8 @@ Rollback to a specific commit:
 cd /opt/starboard
 ENV_FILE=.env.production ROLLBACK_COMMIT=<commit-sha> ./rollback.sh
 ```
+
+Rollback checks out a detached commit and preserves branch history. Tracked local changes must be committed or stashed first. The next normal update returns to `DEPLOY_BRANCH`. Code rollback does not reverse database migrations: keep migrations backward-compatible, or restore a verified pre-deployment database backup for incompatible changes.
 
 ### 7. Logs and runtime inspection
 
@@ -549,6 +567,8 @@ Default backup location:
 cd /opt/starboard
 ENV_FILE=.env.production ./scripts/restore-db.sh ./backups/starboard-YYYYMMDD-HHMMSSZ.sql.gz
 ```
+
+Stop the app before restoring and restart it afterward. Restore validates the compressed file first and runs the schema replacement and SQL import in one transaction with `ON_ERROR_STOP`; invalid SQL rolls back the replacement. Backups use owner-only permissions and are published only after `pg_dump` succeeds. Keep an additional copy off the VPS.
 
 ### 10. Optional Makefile shortcuts
 

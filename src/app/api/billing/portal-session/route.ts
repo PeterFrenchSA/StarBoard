@@ -40,7 +40,12 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "No Stripe customer found for this family yet" }, { status: 409 });
   }
 
-  const stripe = getStripeClient();
+  let stripe: ReturnType<typeof getStripeClient>;
+  try {
+    stripe = getStripeClient();
+  } catch {
+    return Response.json({ error: "Billing is not configured yet." }, { status: 503 });
+  }
   const looksLikeSeedPlaceholder = family.stripeCustomerId.startsWith("cus_seed_");
 
   if (looksLikeSeedPlaceholder) {
@@ -72,7 +77,10 @@ export async function POST(request: NextRequest) {
         { status: 409 }
       );
     }
-  } catch {
+  } catch (error) {
+    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "resource_missing") {
+      return Response.json({ error: "Stripe is unavailable. Please try again later." }, { status: 502 });
+    }
     await db.family.update({
       where: { id: family.id },
       data: {
@@ -89,10 +97,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const session = await stripe.billingPortal.sessions.create({
-    customer: family.stripeCustomerId,
-    return_url: `${getAppUrl(request)}/parent/billing?portal=return`
-  });
+  let session;
+  try {
+    session = await stripe.billingPortal.sessions.create({
+      customer: family.stripeCustomerId,
+      return_url: `${getAppUrl(request)}/parent/billing?portal=return`
+    });
+  } catch {
+    return Response.json({ error: "Could not open the billing portal. Please try again later." }, { status: 502 });
+  }
 
   await db.activityLog.create({
     data: {

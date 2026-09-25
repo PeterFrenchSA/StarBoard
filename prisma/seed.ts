@@ -15,6 +15,11 @@ import {
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { createHash, randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
+
+if (existsSync(".env")) {
+  process.loadEnvFile(".env");
+}
 
 const prisma = new PrismaClient();
 

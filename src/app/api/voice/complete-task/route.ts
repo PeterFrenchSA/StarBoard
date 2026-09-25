@@ -1,15 +1,13 @@
 import {
   ActivityType,
-  PointTransactionType,
   Prisma,
   Role,
   TaskCompletionStatus
 } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { createPointTransaction } from "@/lib/points/service";
 import { canTaskOccurToday, getOccurrenceDate } from "@/lib/tasks/recurrence";
-import { updateChildStreak } from "@/lib/tasks/streak";
+import { submitTask, TaskSubmissionConflict } from "@/lib/tasks/submit";
 import { voiceCompleteTaskSchema } from "@/lib/validation/voice";
 import { requireVoiceAuth, voiceError, voiceOk } from "@/lib/voice/http";
 
@@ -87,80 +85,29 @@ export async function POST(request: NextRequest) {
 
   const occurrenceDate = getOccurrenceDate();
 
-  if (task.taskType === "ONE_OFF") {
-    const oneOffSubmitted = await db.taskCompletion.findFirst({
-      where: {
-        taskId: task.id,
-        childId: child.id,
-        status: {
-          in: [
-            TaskCompletionStatus.PENDING_APPROVAL,
-            TaskCompletionStatus.APPROVED,
-            TaskCompletionStatus.AUTO_APPROVED
-          ]
-        }
-      }
-    });
-
-    if (oneOffSubmitted) {
-      return voiceError("One-off task already submitted", 409);
-    }
-  }
-
-  const existingToday = await db.taskCompletion.findFirst({
-    where: {
-      taskId: task.id,
+  try {
+    const completion = await submitTask({
+      task,
       childId: child.id,
-      occurrenceDate
-    }
-  });
-
-  if (existingToday) {
-    return voiceError("Task already completed today", 409);
-  }
-
-  const completion = await db.taskCompletion.create({
-    data: {
-      taskId: task.id,
-      childId: child.id,
+      actorId: null,
       occurrenceDate,
       status: TaskCompletionStatus.APPROVED,
-      pointsAwarded: task.points,
-      reviewedAt: new Date(),
-      reviewNote: payload.data.note ?? "Completed via voice action"
+      note: payload.data.note ?? "Completed via voice action",
+      activityType: ActivityType.VOICE_TASK_COMPLETED,
+      activityMessage: `Voice action completed task "${task.title}" for ${child.displayName}`,
+      pointNote: `Voice-completed task: ${task.title}`,
+      voiceTokenLabel: auth.token!.label
+    });
+    return voiceOk({
+      completionId: completion.id,
+      child: child.displayName,
+      task: task.title,
+      pointsAwarded: task.points
+    });
+  } catch (error) {
+    if (error instanceof TaskSubmissionConflict) {
+      return voiceError(error.message, 409);
     }
-  });
-
-  await createPointTransaction({
-    familyId: auth.token!.familyId,
-    childId: child.id,
-    actorId: null,
-    type: PointTransactionType.TASK_REWARD,
-    amount: task.points,
-    note: `Voice-completed task: ${task.title}`,
-    referenceType: "TASK_COMPLETION",
-    referenceId: completion.id
-  });
-
-  await updateChildStreak(child.id, completion.completedAt);
-
-  await db.activityLog.create({
-    data: {
-      familyId: auth.token!.familyId,
-      childId: child.id,
-      type: ActivityType.VOICE_TASK_COMPLETED,
-      message: `Voice action completed task "${task.title}" for ${child.displayName}`,
-      metadata: {
-        voiceTokenLabel: auth.token!.label,
-        completionId: completion.id
-      }
-    }
-  });
-
-  return voiceOk({
-    completionId: completion.id,
-    child: child.displayName,
-    task: task.title,
-    pointsAwarded: task.points
-  });
+    throw error;
+  }
 }

@@ -1,6 +1,7 @@
 import { ActivityType, PointTransactionType, Prisma, Role } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
+import { runSerializable } from "@/lib/transactions";
 import { createPointTransaction, getChildPoints } from "@/lib/points/service";
 import { voiceAddPointsSchema } from "@/lib/validation/voice";
 import { requireVoiceAuth, voiceError, voiceOk } from "@/lib/voice/http";
@@ -44,31 +45,35 @@ export async function POST(request: NextRequest) {
     return voiceError("Child not found", 404);
   }
 
-  const transaction = await createPointTransaction({
-    familyId: auth.token!.familyId,
-    childId: child.id,
-    actorId: null,
-    type: PointTransactionType.VOICE_ADJUSTMENT,
-    amount: payload.data.amount,
-    note: payload.data.note,
-    referenceType: "VOICE",
-    referenceId: auth.token!.id
-  });
-
-  await db.activityLog.create({
-    data: {
+  const { transaction, points } = await runSerializable(async (tx) => {
+    const transaction = await createPointTransaction({
       familyId: auth.token!.familyId,
       childId: child.id,
-      type: ActivityType.VOICE_POINTS_ADDED,
-      message: `Voice action adjusted ${child.displayName}'s points by ${payload.data.amount}`,
-      metadata: {
-        note: payload.data.note,
-        voiceTokenLabel: auth.token!.label
-      }
-    }
-  });
+      actorId: null,
+      type: PointTransactionType.VOICE_ADJUSTMENT,
+      amount: payload.data.amount,
+      note: payload.data.note,
+      referenceType: "VOICE",
+      referenceId: auth.token!.id
+    }, tx);
 
-  const points = await getChildPoints(auth.token!.familyId, child.id);
+    await tx.activityLog.create({
+      data: {
+        familyId: auth.token!.familyId,
+        childId: child.id,
+        type: ActivityType.VOICE_POINTS_ADDED,
+        message: `Voice action adjusted ${child.displayName}'s points by ${payload.data.amount}`,
+        metadata: {
+          note: payload.data.note,
+          voiceTokenLabel: auth.token!.label
+        }
+      }
+    });
+
+    const points = await getChildPoints(auth.token!.familyId, child.id, tx);
+
+    return { transaction, points };
+  });
 
   return voiceOk({
     transaction,

@@ -2,7 +2,23 @@
 
 ## Branch
 
-- Working branch: `codex/audit-hardening-pass`
+- Working branch: `codex/starboard-audit-hardening`
+
+## Current Review: 2026-09-20
+
+See `docs/code-review-2026-09-20.md` for the current findings, verification evidence, exact test commands, and deployment notes. The earlier audit below is retained as historical context, not a replacement for the current report.
+
+- Added shared serializable transactions for task completion, approval, points, and redemption consistency under concurrent requests.
+- Hardened account creation, stale-session routing, private PWA caching, CSV exports, rate-limit memory use, and Stripe retry/error handling.
+- Improved child dashboard responsiveness, navigation, contrast, motion preferences, and empty states without replacing the theme system.
+- Hardened Docker dependency synchronization, production health checks, environment exclusion, backup/restore, and rollback selection.
+- Verified 56 unit/API tests, 36 Storybook browser tests, and 3 production-image end-to-end tests, including optional provider and synthetic webhook coverage.
+- Verified disposable PostgreSQL backup/restore failure cases and mobile/desktop dashboard layouts.
+- No schema changes in this review. Existing production health-check URLs must change to `/api/health`.
+- Remaining release priorities: subscription repricing and lifecycle reconciliation, family timezones/streak expiry, dependency advisories, and shared rate limiting before multi-node deployment.
+- Live Stripe payments, fresh Ubuntu bootstrap, physical-device PWA installation, and sustained-load behavior are not certified by this review.
+
+## Earlier Audit Record
 
 ## Product Skills
 

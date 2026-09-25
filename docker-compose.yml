@@ -26,8 +26,7 @@ services:
         condition: service_healthy
     env_file:
       - .env.docker
-    command: >
-      sh -c "npm run prisma:generate && npm run prisma:deploy && npm run dev -- --webpack -H 0.0.0.0 -p 3000"
+    command: sh scripts/docker-dev-start.sh
     ports:
       - "3000:3000"
       - "6006:6006"

@@ -110,6 +110,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const childrenWithHashes = await Promise.all(normalizedChildren.map(async (child) => ({
+    ...child, passwordHash: await hashPassword(child.password)
+  })));
+
   const result = await db.$transaction(async (tx) => {
     await tx.family.update({
       where: { id: auth.session!.familyId },
@@ -121,14 +125,13 @@ export async function POST(request: NextRequest) {
 
     const createdChildren: Array<{ id: string; email: string; displayName: string }> = [];
 
-    for (const child of normalizedChildren) {
-      const passwordHash = await hashPassword(child.password);
+    for (const child of childrenWithHashes) {
       const created = await tx.user.create({
         data: {
           familyId: auth.session!.familyId,
           role: Role.CHILD,
           email: child.email,
-          passwordHash,
+          passwordHash: child.passwordHash,
           displayName: child.childName,
           childProfile: {
             create: {

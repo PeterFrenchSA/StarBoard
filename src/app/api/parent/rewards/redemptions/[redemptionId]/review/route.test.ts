@@ -7,14 +7,27 @@ const hasValidSameOriginMock = vi.hoisted(() => vi.fn());
 const parseJsonBodyMock = vi.hoisted(() => vi.fn());
 const createPointTransactionMock = vi.hoisted(() => vi.fn());
 const getChildPointsMock = vi.hoisted(() => vi.fn());
-const dbMock = vi.hoisted(() => ({
+const txMock = vi.hoisted(() => ({
+  pointTransaction: {
+    aggregate: vi.fn(),
+    create: vi.fn()
+  },
   rewardRedemption: {
-    findFirst: vi.fn(),
-    update: vi.fn()
+    updateMany: vi.fn(),
+    findUniqueOrThrow: vi.fn()
   },
   activityLog: {
     create: vi.fn()
   }
+}));
+const dbMock = vi.hoisted(() => ({
+  rewardRedemption: {
+    findFirst: vi.fn()
+  },
+  activityLog: {
+    create: vi.fn()
+  },
+  $transaction: vi.fn()
 }));
 
 vi.mock("@/lib/auth/session", () => ({
@@ -62,11 +75,13 @@ describe("POST /api/parent/rewards/redemptions/:redemptionId/review", () => {
       reward: { title: "Movie pick" }
     });
 
-    dbMock.rewardRedemption.update.mockResolvedValue({
+    dbMock.$transaction.mockImplementation(async (callback: (tx: typeof txMock) => Promise<unknown>) => callback(txMock));
+    txMock.rewardRedemption.updateMany.mockResolvedValue({ count: 1 });
+    txMock.rewardRedemption.findUniqueOrThrow.mockResolvedValue({
       id: "redemption_1",
       status: RedemptionStatus.APPROVED
     });
-    dbMock.activityLog.create.mockResolvedValue({ id: "activity_1" });
+    txMock.activityLog.create.mockResolvedValue({ id: "activity_1" });
   });
 
   it("deducts points when redemption is approved", async () => {
@@ -93,7 +108,8 @@ describe("POST /api/parent/rewards/redemptions/:redemptionId/review", () => {
         type: PointTransactionType.REWARD_REDEMPTION,
         amount: -50,
         referenceId: "redemption_1"
-      })
+      }),
+      txMock
     );
   });
 
@@ -116,6 +132,43 @@ describe("POST /api/parent/rewards/redemptions/:redemptionId/review", () => {
     }
 
     expect(response.status).toBe(409);
+    expect(createPointTransactionMock).not.toHaveBeenCalled();
+  });
+
+  it("does not deduct points if a concurrent request already reviewed the redemption", async () => {
+    getChildPointsMock.mockResolvedValue(80);
+    txMock.rewardRedemption.updateMany.mockResolvedValue({ count: 0 });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/parent/rewards/redemptions/redemption_1/review", {
+        method: "POST",
+        body: JSON.stringify({})
+      }),
+      {
+        params: Promise.resolve({ redemptionId: "redemption_1" })
+      }
+    );
+
+    if (!response) {
+      throw new Error("Expected a response");
+    }
+
+    expect(response.status).toBe(409);
+    expect(createPointTransactionMock).not.toHaveBeenCalled();
+  });
+  it("does not overwrite a concurrent approval with a rejection", async () => {
+    parseJsonBodyMock.mockResolvedValue({ data: { decision: "REJECT" } });
+    dbMock.rewardRedemption.findFirst.mockResolvedValue({
+      id: "item_1", status: "REQUESTED", childId: "child_1",
+      reward: { title: "Movie" }, pointsCost: 10,
+      child: { displayName: "Leia" }
+    });
+    txMock.rewardRedemption.updateMany.mockResolvedValue({ count: 0 });
+    const response = await POST(new NextRequest("http://localhost/api/review", {
+      method: "POST", body: "{}"
+    }), { params: Promise.resolve({ redemptionId: "item_1" }) });
+    expect(response?.status).toBe(409);
+    expect(txMock.activityLog.create).not.toHaveBeenCalled();
     expect(createPointTransactionMock).not.toHaveBeenCalled();
   });
 });

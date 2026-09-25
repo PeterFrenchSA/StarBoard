@@ -35,8 +35,10 @@ async function resolveStripeCustomerId(input: {
       if (!("deleted" in existingCustomer && existingCustomer.deleted)) {
         return { customerId: existingCustomer.id, created: false };
       }
-    } catch {
-      // Fall back to creating a fresh customer below.
+    } catch (error) {
+      if (!error || typeof error !== "object" || !("code" in error) || error.code !== "resource_missing") {
+        throw error;
+      }
     }
   }
 
@@ -83,6 +85,8 @@ export async function POST(request: NextRequest) {
         name: true,
         billingEmail: true,
         stripeCustomerId: true,
+        stripeSubscriptionId: true,
+        subscriptionStatus: true,
         planBaseAmountCents: true,
         includedChildren: true,
         additionalChildAmountCents: true
@@ -101,6 +105,10 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Family not found" }, { status: 404 });
   }
 
+  if (family.stripeSubscriptionId && family.subscriptionStatus !== "CANCELED" && family.subscriptionStatus !== "INACTIVE") {
+    return Response.json({ error: "This family already has a subscription. Use the billing portal to manage it." }, { status: 409 });
+  }
+
   const pricing = calculateFamilyPlanPrice({
     childCount,
     interval: payload.data.interval,
@@ -110,14 +118,20 @@ export async function POST(request: NextRequest) {
   });
 
   const appUrl = getAppUrl(request);
-  const stripe = getStripeClient();
-  const customer = await resolveStripeCustomerId({
-    existingCustomerId: family.stripeCustomerId,
-    familyId: family.id,
-    familyName: family.name,
-    billingEmail: family.billingEmail,
-    actorEmail: auth.session!.email
-  });
+  let stripe: ReturnType<typeof getStripeClient>;
+  let customer: Awaited<ReturnType<typeof resolveStripeCustomerId>>;
+  try {
+    stripe = getStripeClient();
+    customer = await resolveStripeCustomerId({
+      existingCustomerId: family.stripeCustomerId,
+      familyId: family.id,
+      familyName: family.name,
+      billingEmail: family.billingEmail,
+      actorEmail: auth.session!.email
+    });
+  } catch {
+    return Response.json({ error: "Billing is unavailable. Check the Stripe configuration or try again later." }, { status: 503 });
+  }
 
   const recurringInterval = payload.data.interval === "ANNUAL" ? "year" : "month";
   const lineItemDescription = `${pricing.childCount} child profile${pricing.childCount === 1 ? "" : "s"}, ${pricing.includedChildren} included`;

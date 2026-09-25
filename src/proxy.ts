@@ -39,8 +39,10 @@ export async function proxy(request: NextRequest) {
     return response;
   }
 
+  // Login/register pages validate the user in the database before redirecting.
+  // A signed cookie can outlive a deleted or deactivated account.
   if (PUBLIC_ROUTES.has(pathname)) {
-    return NextResponse.redirect(new URL(getRoleHomePath(session.role), request.url));
+    return NextResponse.next();
   }
 
   if (pathname.startsWith("/parent") && session.role !== "PARENT") {

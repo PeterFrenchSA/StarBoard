@@ -132,5 +132,15 @@ describe("POST /api/billing/checkout-session", () => {
       })
     );
     expect(payload.data.url).toBe("https://checkout.stripe.test/session");
+
+    const createCustomer = vi.fn();
+    getStripeClientMock.mockReturnValue({
+      customers: { retrieve: vi.fn().mockRejectedValue(new Error("Timeout")), create: createCustomer }
+    });
+    const unavailable = await POST(new NextRequest("http://localhost/api/billing/checkout-session", {
+      method: "POST", body: JSON.stringify({ interval: "MONTHLY" }), headers: { "Content-Type": "application/json" }
+    }));
+    expect(unavailable?.status).toBe(503);
+    expect(createCustomer).not.toHaveBeenCalled();
   });
 });

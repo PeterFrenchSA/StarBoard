@@ -4,8 +4,10 @@ node_modules
 .gitignore
 npm-debug.log*
 *.log
-.env
-.env.local
+.env*
+!.env.example
+!.env.production.example
 playwright-report
 test-results
 coverage
+backups

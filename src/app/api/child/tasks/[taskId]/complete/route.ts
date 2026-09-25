@@ -1,12 +1,11 @@
-import { ActivityType, PointTransactionType, TaskCompletionStatus } from "@prisma/client";
+import { ActivityType, TaskCompletionStatus } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { requireApiSession } from "@/lib/auth/session";
 import { hasValidSameOrigin } from "@/lib/csrf";
 import { db } from "@/lib/db";
 import { parseJsonBody } from "@/lib/http";
-import { createPointTransaction } from "@/lib/points/service";
 import { canTaskOccurToday, getOccurrenceDate } from "@/lib/tasks/recurrence";
-import { updateChildStreak } from "@/lib/tasks/streak";
+import { submitTask, TaskSubmissionConflict } from "@/lib/tasks/submit";
 import { completeTaskSchema } from "@/lib/validation/child";
 
 interface RouteContext {
@@ -55,26 +54,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   const occurrenceDate = getOccurrenceDate();
 
-  if (task.taskType === "ONE_OFF") {
-    const alreadyDone = await db.taskCompletion.findFirst({
-      where: {
-        taskId: task.id,
-        childId: auth.session!.userId,
-        status: {
-          in: [
-            TaskCompletionStatus.PENDING_APPROVAL,
-            TaskCompletionStatus.APPROVED,
-            TaskCompletionStatus.AUTO_APPROVED
-          ]
-        }
-      }
-    });
-
-    if (alreadyDone) {
-      return Response.json({ error: "One-off task already submitted" }, { status: 409 });
-    }
-  }
-
   let timerSessionId: string | null = null;
 
   if (task.timerDurationMinutes) {
@@ -103,74 +82,26 @@ export async function POST(request: NextRequest, context: RouteContext) {
     timerSessionId = timerSession.id;
   }
 
-  const existingToday = await db.taskCompletion.findFirst({
-    where: {
-      taskId: task.id,
-      childId: auth.session!.userId,
-      occurrenceDate
-    }
-  });
-
-  if (existingToday) {
-    return Response.json({ error: "Task already submitted today" }, { status: 409 });
-  }
-
   const autoApprove = !task.requiresApproval;
 
-  const completion = await db.$transaction(async (tx) => {
-    const createdCompletion = await tx.taskCompletion.create({
-      data: {
-        taskId: task.id,
-        childId: auth.session!.userId,
-        occurrenceDate,
-        status: autoApprove ? TaskCompletionStatus.AUTO_APPROVED : TaskCompletionStatus.PENDING_APPROVAL,
-        pointsAwarded: autoApprove ? task.points : 0,
-        reviewNote: payload.data.note,
-        reviewedAt: autoApprove ? new Date() : null,
-        reviewedById: autoApprove ? auth.session!.userId : null
-      }
-    });
-
-    if (timerSessionId) {
-      await tx.taskTimerSession.update({
-        where: { id: timerSessionId },
-        data: { completedAt: new Date() }
-      });
-    }
-
-    return createdCompletion;
-  });
-
-  await db.activityLog.create({
-    data: {
-      familyId: auth.session!.familyId,
-      actorId: auth.session!.userId,
-      childId: auth.session!.userId,
-      type: ActivityType.TASK_COMPLETED,
-      message: `${auth.session!.displayName} completed task "${task.title}"${autoApprove ? " (auto-approved)" : ""}`,
-      metadata: {
-        completionId: completion.id,
-        note: payload.data.note,
-        usedTimer: Boolean(task.timerDurationMinutes),
-        timerSessionId
-      }
-    }
-  });
-
-  if (autoApprove) {
-    await createPointTransaction({
-      familyId: auth.session!.familyId,
+  try {
+    const completion = await submitTask({
+      task,
       childId: auth.session!.userId,
       actorId: auth.session!.userId,
-      type: PointTransactionType.TASK_REWARD,
-      amount: task.points,
-      note: `Task auto-approved: ${task.title}`,
-      referenceType: "TASK_COMPLETION",
-      referenceId: completion.id
+      occurrenceDate,
+      status: autoApprove ? TaskCompletionStatus.AUTO_APPROVED : TaskCompletionStatus.PENDING_APPROVAL,
+      note: payload.data.note,
+      timerSessionId,
+      activityType: ActivityType.TASK_COMPLETED,
+      activityMessage: `${auth.session!.displayName} completed task "${task.title}"${autoApprove ? " (auto-approved)" : ""}`,
+      pointNote: `Task auto-approved: ${task.title}`
     });
-
-    await updateChildStreak(auth.session!.userId, completion.completedAt);
+    return Response.json({ data: completion }, { status: 201 });
+  } catch (error) {
+    if (error instanceof TaskSubmissionConflict) {
+      return Response.json({ error: error.message }, { status: 409 });
+    }
+    throw error;
   }
-
-  return Response.json({ data: completion }, { status: 201 });
 }

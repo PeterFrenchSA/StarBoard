@@ -4,6 +4,7 @@ import { hashPassword } from "@/lib/auth/password";
 import { requireApiSession } from "@/lib/auth/session";
 import { hasValidSameOrigin } from "@/lib/csrf";
 import { db } from "@/lib/db";
+import { hasPrismaErrorCode } from "@/lib/transactions";
 import { parseJsonBody } from "@/lib/http";
 import { createParentAccountSchema } from "@/lib/validation/admin";
 
@@ -48,36 +49,46 @@ export async function POST(request: NextRequest) {
 
   const passwordHash = await hashPassword(payload.data.password);
 
-  const parent = await db.user.create({
-    data: {
-      familyId: auth.session!.familyId,
-      role: Role.PARENT,
-      email,
-      passwordHash,
-      displayName: payload.data.parentName,
-      isFamilyOwner: false,
-      onboardingCompletedAt: new Date()
-    },
-    select: {
-      id: true,
-      displayName: true,
-      email: true,
-      createdAt: true
-    }
-  });
+  try {
+    const parent = await db.$transaction(async (tx) => {
+      const parent = await tx.user.create({
+        data: {
+          familyId: auth.session!.familyId,
+          role: Role.PARENT,
+          email,
+          passwordHash,
+          displayName: payload.data.parentName,
+          isFamilyOwner: false,
+          onboardingCompletedAt: new Date()
+        },
+        select: {
+          id: true,
+          displayName: true,
+          email: true,
+          createdAt: true
+        }
+      });
 
-  await db.activityLog.create({
-    data: {
-      familyId: auth.session!.familyId,
-      actorId: auth.session!.userId,
-      type: ActivityType.PARENT_ADDED,
-      message: `${actor.displayName} added parent account for ${parent.displayName}`,
-      metadata: {
-        parentId: parent.id,
-        parentEmail: parent.email
-      }
-    }
-  });
+      await tx.activityLog.create({
+        data: {
+          familyId: auth.session!.familyId,
+          actorId: auth.session!.userId,
+          type: ActivityType.PARENT_ADDED,
+          message: `${actor.displayName} added parent account for ${parent.displayName}`,
+          metadata: {
+            parentId: parent.id,
+            parentEmail: parent.email
+          }
+        }
+      });
 
-  return Response.json({ data: parent }, { status: 201 });
+      return parent;
+    });
+    return Response.json({ data: parent }, { status: 201 });
+  } catch (error) {
+    if (hasPrismaErrorCode(error, "P2002")) {
+      return Response.json({ error: "Email already in use" }, { status: 409 });
+    }
+    throw error;
+  }
 }

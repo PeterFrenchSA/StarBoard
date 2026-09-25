@@ -7,6 +7,7 @@ const hasValidSameOriginMock = vi.hoisted(() => vi.fn());
 const parseJsonBodyMock = vi.hoisted(() => vi.fn());
 const createPointTransactionMock = vi.hoisted(() => vi.fn());
 const dbMock = vi.hoisted(() => ({
+  $transaction: vi.fn(),
   user: {
     findFirst: vi.fn()
   },
@@ -53,6 +54,7 @@ describe("POST /api/parent/points", () => {
       displayName: "Leia"
     });
     dbMock.activityLog.create.mockResolvedValue({ id: "activity_1" });
+    dbMock.$transaction.mockImplementation(async (work: (tx: typeof dbMock) => Promise<unknown>) => work(dbMock));
   });
 
   it("creates MANUAL_ADD transaction for positive amount", async () => {
@@ -82,7 +84,7 @@ describe("POST /api/parent/points", () => {
       expect.objectContaining({
         type: PointTransactionType.MANUAL_ADD,
         amount: 10
-      })
+      }), dbMock
     );
   });
 
@@ -113,7 +115,7 @@ describe("POST /api/parent/points", () => {
       expect.objectContaining({
         type: PointTransactionType.MANUAL_REMOVE,
         amount: -6
-      })
+      }), dbMock
     );
   });
 });

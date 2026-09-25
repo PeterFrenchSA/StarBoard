@@ -153,9 +153,12 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
   }, [pointsDelta]);
 
   useEffect(() => {
+    if (!data?.tasks.some((task) => task.timerActive && !task.completed)) {
+      return;
+    }
     const interval = setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [data]);
 
   async function handleAction(action: () => Promise<void>, successMessage?: string) {
     setSaving(true);
@@ -191,7 +194,7 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
   );
 
   const nextRewardProgress = useMemo(() => {
-    if (!data) {
+    if (!data || data.rewards.length === 0) {
       return 0;
     }
 
@@ -277,10 +280,10 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
       <section className="mb-4 grid gap-4 xl:grid-cols-[2fr_1fr]">
         <Card className="cosmic-card p-4 sm:p-5">
           <div className="grid gap-4 md:grid-cols-[220px_1fr]">
-            <div className="cosmic-subcard flex flex-col items-center justify-between p-3 text-center">
+            <div className="cosmic-subcard flex items-center justify-between gap-3 p-3 text-center md:flex-col">
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-100">Cosmic Cadet ID</p>
               <div
-                className="mt-2 flex h-40 w-full items-center justify-center rounded-2xl border border-white/35 text-7xl shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15)]"
+                className="flex h-16 w-20 items-center justify-center rounded-2xl border border-white/35 text-5xl shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15)] md:mt-2 md:h-40 md:w-full md:text-7xl"
                 style={{
                   background: `radial-gradient(circle at 22% 14%, ${activeTheme.backgroundAccent}, transparent 48%), linear-gradient(150deg, rgba(21,28,80,0.96), rgba(6,11,43,0.98))`
                 }}
@@ -291,13 +294,15 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
 
             <div>
               <p className="mb-2 text-sm font-black uppercase tracking-[0.14em] text-slate-100">Choose Your Theme</p>
-              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+              <div className="grid grid-cols-4 gap-2 md:grid-cols-2 lg:grid-cols-4">
                 {CHILD_THEME_OPTIONS.map((themeOption) => {
                   const isActive = themeOption.value === activeThemeValue;
                   return (
                     <button
                       key={themeOption.value}
                       type="button"
+                      aria-pressed={isActive}
+                      aria-label={`${themeOption.label} theme`}
                       disabled={saving}
                       onClick={() => void handleThemeChange(themeOption.value)}
                       className={`cosmic-theme-option ${isActive ? "is-active" : ""}`}
@@ -305,8 +310,8 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
                         background: `radial-gradient(circle at 20% 16%, ${themeOption.backgroundAccent}, transparent 44%), linear-gradient(160deg, ${themeOption.backgroundStart}, ${themeOption.backgroundEnd})`
                       }}
                     >
-                      <span className="text-3xl">{themeOption.accentEmoji}</span>
-                      <span className="mt-1 block text-sm font-black text-slate-900">{themeOption.label}</span>
+                      <span className="text-3xl" aria-hidden="true">{themeOption.accentEmoji}</span>
+                      <span className="mt-1 block text-[10px] font-black text-slate-900 sm:text-sm">{themeOption.label}</span>
                     </button>
                   );
                 })}
@@ -315,42 +320,41 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
           </div>
 
           <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3">
-            <div className="cosmic-mini-stat">
+            <a href="#missions" className="cosmic-mini-stat" aria-label="Go to missions">
               <Target className="mx-auto mb-1 h-5 w-5 text-fuchsia-200" />
               <p className="text-3xl font-black text-white">{data.tasks.length}</p>
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-100">Missions</p>
-            </div>
-            <div className="cosmic-mini-stat">
+            </a>
+            <a href="#completed" className="cosmic-mini-stat" aria-label="Go to completed tasks">
               <CheckCircle2 className="mx-auto mb-1 h-5 w-5 text-emerald-200" />
               <p className="text-3xl font-black text-white">{completedTasks.length}</p>
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-100">Done</p>
-            </div>
-            <div className="cosmic-mini-stat">
+            </a>
+            <a href="#rewards" className="cosmic-mini-stat" aria-label="Go to rewards">
               <Gift className="mx-auto mb-1 h-5 w-5 text-amber-200" />
               <p className="text-3xl font-black text-white">{rewardsReadyCount}</p>
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-100">Ready</p>
-            </div>
+            </a>
           </div>
         </Card>
 
-        <Card className="cosmic-card flex flex-col items-center justify-center p-4 sm:p-5">
+        <Card className="cosmic-card flex items-center justify-center gap-4 p-4 sm:flex-col sm:gap-0 sm:p-5">
           <div
-            className="cosmic-galaxy-ring mb-3"
+            className="cosmic-galaxy-ring sm:mb-3"
             style={{
               boxShadow: `0 0 28px ${activeTheme.glowColor}`
             }}
           >
             <div className="cosmic-galaxy-core">{nextRewardProgress}%</div>
           </div>
-          <p className="text-3xl font-black text-white">
-            {nextReward ? nextRewardProgress : 100}%
-          </p>
+          <div>
           <p className="text-center text-xl font-black text-cyan-100">
-            {nextReward ? "Next Reward" : "All Rewards Unlocked"}
+            {nextReward ? "Next Reward" : data.rewards.length ? "All Rewards Unlocked" : "Rewards Coming Soon"}
           </p>
           <p className="text-center text-base font-semibold text-blue-200">
-            {nextReward ? `${nextReward.iconEmoji} ${nextReward.title}` : "All Rewards Ready"}
+            {nextReward ? `${nextReward.iconEmoji} ${nextReward.title}` : data.rewards.length ? "All Rewards Ready" : "Ask a parent to add a reward"}
           </p>
+          </div>
         </Card>
       </section>
 
@@ -395,11 +399,11 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
         </Card>
       </section>
 
-      <section className="mb-4 grid gap-3 md:grid-cols-3">
+      <section aria-label="Badges" tabIndex={0} className="mb-4 flex gap-3 overflow-x-auto pb-1 md:grid md:grid-cols-3">
         {data.badges.map((badge) => (
           <Card
             key={badge.id}
-            className={`cosmic-subcard p-4 ${badge.earned ? "" : "opacity-65"}`}
+            className={`cosmic-subcard min-w-[190px] p-4 md:min-w-0 ${badge.earned ? "" : "opacity-65"}`}
             style={badge.earned ? { borderColor: activeTheme.borderColor } : undefined}
           >
             <p className="text-2xl font-black text-white">
@@ -413,7 +417,7 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
       </section>
 
       <section className="mb-4 grid gap-4 xl:grid-cols-2">
-        <Card className="cosmic-card p-4 sm:p-5">
+        <Card id="missions" className="cosmic-card scroll-mt-4 p-4 sm:p-5">
           <h2 className="cosmic-section-title">
             {activeTheme.taskEmoji} Field Assignments
           </h2>
@@ -472,8 +476,8 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
                         {timerRequired && !hasActiveTimer ? (
                           <Button
                             type="button"
-                            className="mt-3 h-12 w-full border-0 bg-sky-500 text-sm font-black text-white hover:bg-sky-400"
-                            variant="ghost"
+                            className="mt-3 h-12 w-full border-0 bg-sky-700 text-sm font-black text-white hover:bg-sky-800"
+                            variant="custom"
                             loading={saving}
                             disabled={!canStartTimer}
                             onClick={() =>
@@ -494,7 +498,8 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
                         ) : null}
                         <Button
                           type="button"
-                          className="mt-3 h-14 w-full border-0 bg-emerald-500 text-xl font-black text-white hover:bg-emerald-400"
+                          className="mt-3 h-14 w-full border-0 bg-emerald-700 text-xl font-black text-white hover:bg-emerald-800"
+                          variant="custom"
                           loading={saving}
                           disabled={!canSubmitCompletion}
                           onClick={() =>
@@ -521,7 +526,7 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
           </div>
         </Card>
 
-        <Card className="cosmic-card p-4 sm:p-5">
+        <Card id="rewards" className="cosmic-card scroll-mt-4 p-4 sm:p-5">
           <h2 className="cosmic-section-title">
             {activeTheme.rewardEmoji} Artifact Redeems
           </h2>
@@ -553,10 +558,10 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
                     type="button"
                     className={
                       reward.affordable
-                        ? "mt-3 h-12 w-full border-0 bg-violet-500 text-base font-black text-white hover:bg-violet-400"
+                        ? "mt-3 h-12 w-full border-0 bg-violet-700 text-base font-black text-white hover:bg-violet-800"
                         : "mt-3 h-12 w-full text-base font-black"
                     }
-                    variant={reward.affordable ? "secondary" : "ghost"}
+                    variant={reward.affordable ? "custom" : "ghost"}
                     disabled={!reward.affordable || saving}
                     loading={saving}
                     onClick={() =>
@@ -579,12 +584,12 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-3">
-        <Card className="cosmic-card p-4">
+        <Card id="completed" className="cosmic-card scroll-mt-4 p-4">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="cosmic-section-title mb-0 text-2xl">{activeTheme.taskEmoji} Done</h2>
             <span className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-100">Tasks</span>
           </div>
-          <div className="cosmic-scroll max-h-[320px] space-y-2 overflow-y-auto pr-1">
+          <div tabIndex={0} className="cosmic-scroll max-h-[320px] space-y-2 overflow-y-auto pr-1">
             {completedTasks.length === 0 ? (
               <p className="text-sm font-semibold text-blue-200">No completed missions yet.</p>
             ) : (
@@ -605,7 +610,7 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
             <h2 className="cosmic-section-title mb-0 text-2xl">{activeTheme.accentEmoji} Points</h2>
             <span className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-100">Details</span>
           </div>
-          <div className="cosmic-scroll max-h-[320px] space-y-2 overflow-y-auto pr-1">
+          <div tabIndex={0} className="cosmic-scroll max-h-[320px] space-y-2 overflow-y-auto pr-1">
             {data.pointsHistory.length === 0 ? (
               <p className="text-sm font-semibold text-blue-200">No points history yet.</p>
             ) : (
@@ -631,7 +636,7 @@ export function ChildDashboard({ childName }: ChildDashboardProps) {
             <h2 className="cosmic-section-title mb-0 text-2xl">{activeTheme.accentEmoji} Feed</h2>
             <span className="text-xs font-bold uppercase tracking-[0.14em] text-cyan-100">Live</span>
           </div>
-          <div className="cosmic-scroll max-h-[320px] space-y-2 overflow-y-auto pr-1">
+          <div tabIndex={0} className="cosmic-scroll max-h-[320px] space-y-2 overflow-y-auto pr-1">
             {data.activity.length === 0 ? (
               <p className="text-sm font-semibold text-blue-200">No activity yet.</p>
             ) : (

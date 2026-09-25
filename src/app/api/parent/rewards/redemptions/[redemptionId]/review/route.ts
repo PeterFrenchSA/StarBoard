@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { requireApiSession } from "@/lib/auth/session";
 import { hasValidSameOrigin } from "@/lib/csrf";
 import { db } from "@/lib/db";
+import { runSerializable } from "@/lib/transactions";
 import { parseJsonBody } from "@/lib/http";
 import { createPointTransaction, getChildPoints } from "@/lib/points/service";
 import { reviewRedemptionSchema } from "@/lib/validation/parent";
@@ -47,73 +48,58 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return Response.json({ error: "Redemption already reviewed" }, { status: 409 });
   }
 
-  if (payload.data.decision === "APPROVE") {
-    const currentPoints = await getChildPoints(auth.session!.familyId, redemption.childId);
-
-    if (currentPoints < redemption.pointsCost) {
-      return Response.json({ error: "Child does not have enough points" }, { status: 409 });
+  const approve = payload.data.decision === "APPROVE";
+  const result = await runSerializable(async (tx) => {
+    if (approve) {
+      const currentPoints = await getChildPoints(auth.session!.familyId, redemption.childId, tx);
+      if (currentPoints < redemption.pointsCost) {
+        return { error: "Child does not have enough points" };
+      }
     }
-
-    const updated = await db.rewardRedemption.update({
-      where: { id: redemption.id },
+    const claimed = await tx.rewardRedemption.updateMany({
+      where: {
+        id: redemption.id,
+        familyId: auth.session!.familyId,
+        status: RedemptionStatus.REQUESTED
+      },
       data: {
-        status: RedemptionStatus.APPROVED,
+        status: approve ? RedemptionStatus.APPROVED : RedemptionStatus.REJECTED,
         reviewedAt: new Date(),
         reviewedById: auth.session!.userId,
         note: payload.data.note
       }
     });
-
-    await createPointTransaction({
-      familyId: auth.session!.familyId,
-      childId: redemption.childId,
-      actorId: auth.session!.userId,
-      type: PointTransactionType.REWARD_REDEMPTION,
-      amount: -redemption.pointsCost,
-      note: `Reward redeemed: ${redemption.reward.title}`,
-      referenceType: "REWARD_REDEMPTION",
-      referenceId: redemption.id
-    });
-
-    await db.activityLog.create({
+    if (claimed.count !== 1) {
+      return { error: "Redemption already reviewed" };
+    }
+    const updated = await tx.rewardRedemption.findUniqueOrThrow({ where: { id: redemption.id } });
+    if (approve) {
+      await createPointTransaction({
+        familyId: auth.session!.familyId,
+        childId: redemption.childId,
+        actorId: auth.session!.userId,
+        type: PointTransactionType.REWARD_REDEMPTION,
+        amount: -redemption.pointsCost,
+        note: `Reward redeemed: ${redemption.reward.title}`,
+        referenceType: "REWARD_REDEMPTION",
+        referenceId: redemption.id
+      }, tx);
+    }
+    await tx.activityLog.create({
       data: {
         familyId: auth.session!.familyId,
         actorId: auth.session!.userId,
         childId: redemption.childId,
-        type: ActivityType.REWARD_APPROVED,
-        message: `${auth.session!.displayName} approved reward "${redemption.reward.title}" for ${redemption.child.displayName}`,
-        metadata: {
-          redemptionId: redemption.id
-        }
+        type: approve ? ActivityType.REWARD_APPROVED : ActivityType.REWARD_REJECTED,
+        message: `${auth.session!.displayName} ${approve ? "approved" : "rejected"} reward "${redemption.reward.title}" for ${redemption.child.displayName}`,
+        metadata: { redemptionId: redemption.id, note: payload.data.note }
       }
     });
+    return { redemption: updated };
+  });
 
-    return Response.json({ data: updated });
+  if (result.error) {
+    return Response.json({ error: result.error }, { status: 409 });
   }
-
-  const updated = await db.rewardRedemption.update({
-    where: { id: redemption.id },
-    data: {
-      status: RedemptionStatus.REJECTED,
-      reviewedAt: new Date(),
-      reviewedById: auth.session!.userId,
-      note: payload.data.note
-    }
-  });
-
-  await db.activityLog.create({
-    data: {
-      familyId: auth.session!.familyId,
-      actorId: auth.session!.userId,
-      childId: redemption.childId,
-      type: ActivityType.REWARD_REJECTED,
-      message: `${auth.session!.displayName} rejected reward "${redemption.reward.title}" for ${redemption.child.displayName}`,
-      metadata: {
-        redemptionId: redemption.id,
-        note: payload.data.note
-      }
-    }
-  });
-
-  return Response.json({ data: updated });
+  return Response.json({ data: result.redemption });
 }

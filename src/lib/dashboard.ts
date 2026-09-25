@@ -408,6 +408,18 @@ export async function getChildOverviewData(familyId: string, childId: string) {
           assignedChildId: childId,
           isActive: true
         },
+        include: {
+          completions: {
+            where: {
+              childId,
+              OR: [
+                { occurrenceDate: todayOccurrenceDate },
+                { task: { taskType: "ONE_OFF" }, status: { not: TaskCompletionStatus.REJECTED } }
+              ]
+            },
+            select: { occurrenceDate: true, status: true }
+          }
+        },
         orderBy: [{ taskType: "desc" }, { createdAt: "desc" }]
       }),
       db.taskCompletion.findMany({
@@ -494,40 +506,21 @@ export async function getChildOverviewData(familyId: string, childId: string) {
 
   const points = await getChildPoints(familyId, childId);
 
-  const completedTodayTaskIds = new Set(
-    completions
-      .filter((completion) => {
-        const completionDate = new Date(completion.occurrenceDate);
-        const now = new Date();
-        return (
-          completionDate.getFullYear() === now.getFullYear() &&
-          completionDate.getMonth() === now.getMonth() &&
-          completionDate.getDate() === now.getDate()
-        );
-      })
-      .map((completion) => completion.taskId)
-  );
-
-  const oneOffSubmittedTaskIds = new Set(
-    completions
-      .filter(
-        (completion) =>
-          completion.task.taskType === "ONE_OFF" &&
-          completion.status !== TaskCompletionStatus.REJECTED
-      )
-      .map((completion) => completion.taskId)
-  );
-
   const timerSessionByTaskId = new Map(timerSessions.map((session) => [session.taskId, session]));
   const now = new Date();
 
-  const tasksWithAvailability = tasks.map((task) => {
+  const tasksWithAvailability = tasks.map(({ completions: taskCompletions, ...task }) => {
     const timerSession = timerSessionByTaskId.get(task.id);
     const timerActive = Boolean(timerSession && !timerSession.completedAt && timerSession.expiresAt > now);
     const timerExpired = Boolean(timerSession && !timerSession.completedAt && timerSession.expiresAt <= now);
     const deadlinePassed = Boolean(task.deadlineAt && task.deadlineAt <= now);
-    const completedToday = completedTodayTaskIds.has(task.id);
-    const oneOffSubmitted = oneOffSubmittedTaskIds.has(task.id);
+    // Availability must not depend on the 50-entry activity/history window.
+    const completedToday = taskCompletions.some(
+      (completion) => completion.occurrenceDate.getTime() === todayOccurrenceDate.getTime()
+    );
+    const oneOffSubmitted = task.taskType === "ONE_OFF" && taskCompletions.some(
+      (completion) => completion.status !== TaskCompletionStatus.REJECTED
+    );
     const completed = completedToday || oneOffSubmitted;
     const scheduledToday = canTaskOccurToday(task) && !oneOffSubmitted;
 
@@ -554,7 +547,7 @@ export async function getChildOverviewData(familyId: string, childId: string) {
   });
 
   const rewardsWithProgress = rewards.map((reward) => {
-    const progress = Math.min(100, Math.round((points / reward.cost) * 100));
+    const progress = Math.max(0, Math.min(100, Math.round((points / reward.cost) * 100)));
     return {
       ...reward,
       affordable: points >= reward.cost,

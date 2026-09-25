@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { requireApiSession } from "@/lib/auth/session";
 import { hasValidSameOrigin } from "@/lib/csrf";
 import { db } from "@/lib/db";
+import { runSerializable } from "@/lib/transactions";
 import { parseJsonBody } from "@/lib/http";
 import { createPointTransaction } from "@/lib/points/service";
 import { updateChildStreak } from "@/lib/tasks/streak";
@@ -50,72 +51,54 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return Response.json({ error: "Completion already reviewed" }, { status: 409 });
   }
 
-  if (payload.data.decision === "APPROVE") {
-    const updatedCompletion = await db.taskCompletion.update({
-      where: { id: completion.id },
+  const approve = payload.data.decision === "APPROVE";
+  const updatedCompletion = await runSerializable(async (tx) => {
+    const claimed = await tx.taskCompletion.updateMany({
+      where: {
+        id: completion.id,
+        status: TaskCompletionStatus.PENDING_APPROVAL,
+        task: { familyId: auth.session!.familyId }
+      },
       data: {
-        status: TaskCompletionStatus.APPROVED,
-        pointsAwarded: completion.task.points,
+        status: approve ? TaskCompletionStatus.APPROVED : TaskCompletionStatus.REJECTED,
+        pointsAwarded: approve ? completion.task.points : 0,
         reviewedAt: new Date(),
         reviewedById: auth.session!.userId,
         reviewNote: payload.data.note
       }
     });
-
-    await createPointTransaction({
-      familyId: auth.session!.familyId,
-      childId: completion.childId,
-      actorId: auth.session!.userId,
-      type: PointTransactionType.TASK_REWARD,
-      amount: completion.task.points,
-      note: `Task approved: ${completion.task.title}`,
-      referenceType: "TASK_COMPLETION",
-      referenceId: completion.id
-    });
-
-    await updateChildStreak(completion.childId, updatedCompletion.completedAt);
-
-    await db.activityLog.create({
+    if (claimed.count !== 1) {
+      return null;
+    }
+    const updated = await tx.taskCompletion.findUniqueOrThrow({ where: { id: completion.id } });
+    if (approve) {
+      await createPointTransaction({
+        familyId: auth.session!.familyId,
+        childId: completion.childId,
+        actorId: auth.session!.userId,
+        type: PointTransactionType.TASK_REWARD,
+        amount: completion.task.points,
+        note: `Task approved: ${completion.task.title}`,
+        referenceType: "TASK_COMPLETION",
+        referenceId: completion.id
+      }, tx);
+      await updateChildStreak(completion.childId, updated.completedAt, tx);
+    }
+    await tx.activityLog.create({
       data: {
         familyId: auth.session!.familyId,
         actorId: auth.session!.userId,
         childId: completion.childId,
-        type: ActivityType.TASK_APPROVED,
-        message: `${auth.session!.displayName} approved task completion "${completion.task.title}" for ${completion.child.displayName}`,
-        metadata: {
-          completionId: completion.id,
-          note: payload.data.note
-        }
+        type: approve ? ActivityType.TASK_APPROVED : ActivityType.TASK_REJECTED,
+        message: `${auth.session!.displayName} ${approve ? "approved" : "rejected"} task completion "${completion.task.title}" for ${completion.child.displayName}`,
+        metadata: { completionId: completion.id, note: payload.data.note }
       }
     });
+    return updated;
+  });
 
-    return Response.json({ data: updatedCompletion });
+  if (!updatedCompletion) {
+    return Response.json({ error: "Completion already reviewed" }, { status: 409 });
   }
-
-  const updatedCompletion = await db.taskCompletion.update({
-    where: { id: completion.id },
-    data: {
-      status: TaskCompletionStatus.REJECTED,
-      pointsAwarded: 0,
-      reviewedAt: new Date(),
-      reviewedById: auth.session!.userId,
-      reviewNote: payload.data.note
-    }
-  });
-
-  await db.activityLog.create({
-    data: {
-      familyId: auth.session!.familyId,
-      actorId: auth.session!.userId,
-      childId: completion.childId,
-      type: ActivityType.TASK_REJECTED,
-      message: `${auth.session!.displayName} rejected task completion "${completion.task.title}" for ${completion.child.displayName}`,
-      metadata: {
-        completionId: completion.id,
-        note: payload.data.note
-      }
-    }
-  });
-
   return Response.json({ data: updatedCompletion });
 }
